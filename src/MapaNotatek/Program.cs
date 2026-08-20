@@ -1,12 +1,6 @@
 using System.Runtime.InteropServices;
-using Microsoft.UI;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Hosting;
-using Microsoft.UI.Xaml.Media;
-using Windows.Graphics;
 using WinRT;
 
 namespace MapaNotatek;
@@ -15,11 +9,6 @@ public static class Program
 {
     [DllImport("Microsoft.ui.xaml.dll")]
     private static extern void XamlCheckProcessRequirements();
-
-    private static DispatcherQueueController? _queueController;
-    private static WindowsXamlManager? _xamlManager;
-    private static AppWindow? _appWindow;
-    private static DesktopWindowXamlSource? _xamlSource;
 
     [STAThread]
     private static void Main(string[] args)
@@ -35,61 +24,14 @@ public static class Program
             Startup.Log("XamlCheck OK");
             ComWrappersSupport.InitializeComWrappers();
             Startup.Log("COM OK");
-
-            _queueController = DispatcherQueueController.CreateOnCurrentThread();
-            var queue = _queueController.DispatcherQueue;
-            SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
-            Startup.Log("Dispatcher OK");
-
-            _xamlManager = WindowsXamlManager.InitializeForCurrentThread();
-            Startup.Log("XamlManager OK");
-
-            _appWindow = AppWindow.Create();
-            _appWindow.Title = "MapaNotatek test";
-            _appWindow.MoveAndResize(new RectInt32(120, 120, 720, 420));
-            Startup.Log("AppWindow created");
-
-            _xamlSource = new DesktopWindowXamlSource();
-            _xamlSource.Initialize(_appWindow.Id);
-            Startup.Log("Island initialized");
-
-            var root = new Grid { Background = new SolidColorBrush(Colors.WhiteSmoke) };
-            root.Resources.MergedDictionaries.Add(new XamlControlsResources());
-            root.Children.Add(new TextBlock
+            Application.Start((ApplicationInitializationCallbackParams p) =>
             {
-                Text = "To jest okno testowe. WinUI działa.",
-                Margin = new Thickness(32),
-                FontSize = 22
+                Startup.Log("Application.Start");
+                var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
+                SynchronizationContext.SetSynchronizationContext(context);
+                _ = new App();
             });
-            _xamlSource.Content = root;
-            Startup.Log("Island content set");
-
-            _appWindow.Closing += (_, _) =>
-            {
-                Startup.Log("AppWindow closing");
-                queue.EnqueueEventLoopExit();
-            };
-
-            _appWindow.Show();
-            var hwnd = Win32Interop.GetWindowFromWindowId(_appWindow.Id);
-            Startup.Log("HWND=" + hwnd);
-            Startup.ShowHwnd(hwnd);
-            if (Startup.IsSmoke)
-            {
-                var timer = queue.CreateTimer();
-                timer.Interval = TimeSpan.FromSeconds(8);
-                timer.IsRepeating = false;
-                timer.Tick += (_, _) =>
-                {
-                    Startup.Log("smoke: still alive, exiting");
-                    queue.EnqueueEventLoopExit();
-                };
-                timer.Start();
-            }
-
-            Startup.Log("running event loop");
-            queue.RunEventLoop();
-            Startup.Log("event loop ended");
+            Startup.Log("Application.Start ended");
         }
         catch (Exception ex)
         {
