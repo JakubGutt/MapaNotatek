@@ -25,12 +25,19 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        Startup.Log("MainWindow ctor");
         InitializeComponent();
-        Startup.Log("InitializeComponent OK");
         Title = "MapaNotatek";
         StatusText.Text = "Ładowanie…";
-        Startup.Log("MainWindow ctor done");
+        try
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
+        }
+        catch (Exception ex)
+        {
+            Startup.Log("Resize: " + ex.Message);
+        }
+
+        RootGrid.Loaded += (_, _) => LoadWorkspace();
     }
 
     public void LoadWorkspace()
