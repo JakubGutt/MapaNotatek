@@ -1,0 +1,58 @@
+name: Windows smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore src\MapaNotatek\MapaNotatek.csproj
+
+      - name: Build
+        run: dotnet build src\MapaNotatek\MapaNotatek.csproj -c Debug -p:Platform=x64 -r win-x64 --no-restore
+
+      - name: Run for 8 seconds
+        env:
+          MAPANOTATEK_SMOKE: "1"
+          CI: "true"
+        run: |
+          $exe = Get-ChildItem -Path src\MapaNotatek\bin -Recurse -Filter MapaNotatek.exe |
+            Where-Object { $_.DirectoryName -match 'win-x64' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "MapaNotatek.exe not found" }
+          Write-Host "EXE $($exe.FullName)"
+          Set-Location $exe.DirectoryName
+          & .\MapaNotatek.exe
+          $code = $LASTEXITCODE
+          Write-Host "exit $code"
+          if (Test-Path "$env:TEMP\MapaNotatek-startup.log") {
+            Write-Host "---- startup.log ----"
+            Get-Content "$env:TEMP\MapaNotatek-startup.log"
+          }
+          if (Test-Path "$env:TEMP\MapaNotatek-crash.log") {
+            Write-Host "---- crash.log ----"
+            Get-Content "$env:TEMP\MapaNotatek-crash.log"
+            exit 1
+          }
+          if ($code -ne 0) { exit $code }
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/**
+            C:\Users\runneradmin\AppData\Local\Temp\MapaNotatek-*.log

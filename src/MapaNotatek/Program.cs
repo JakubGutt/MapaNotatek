@@ -74,6 +74,19 @@ public static class Program
             var hwnd = Win32Interop.GetWindowFromWindowId(_appWindow.Id);
             Startup.Log("HWND=" + hwnd);
             Startup.ShowHwnd(hwnd);
+            if (Startup.IsSmoke)
+            {
+                var timer = queue.CreateTimer();
+                timer.Interval = TimeSpan.FromSeconds(8);
+                timer.IsRepeating = false;
+                timer.Tick += (_, _) =>
+                {
+                    Startup.Log("smoke: still alive, exiting");
+                    queue.EnqueueEventLoopExit();
+                };
+                timer.Start();
+            }
+
             Startup.Log("running event loop");
             queue.RunEventLoop();
             Startup.Log("event loop ended");
@@ -88,6 +101,10 @@ public static class Program
 internal static class Startup
 {
     private const int SwShownormal = 1;
+
+    public static bool IsSmoke =>
+        Environment.GetEnvironmentVariable("MAPANOTATEK_SMOKE") == "1" ||
+        Environment.GetEnvironmentVariable("CI") == "true";
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
@@ -136,7 +153,10 @@ internal static class Startup
         {
             var path = Path.Combine(Path.GetTempPath(), "MapaNotatek-crash.log");
             File.WriteAllText(path, $"{DateTime.Now:O}\n{message}");
-            MessageBox(IntPtr.Zero, message + "\n\nZapisano: " + path, "MapaNotatek", 0x00000010);
+            if (!IsSmoke)
+            {
+                MessageBox(IntPtr.Zero, message + "\n\nZapisano: " + path, "MapaNotatek", 0x00000010);
+            }
         }
         catch
         {
