@@ -1,6 +1,7 @@
-using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Windows.Graphics;
 using WinRT.Interop;
 
@@ -9,7 +10,8 @@ namespace MapaNotatek;
 public partial class App : Application
 {
     private Window? _window;
-    private DispatcherQueueTimer? _startTimer;
+    private AppWindow? _nativeWindow;
+    private DesktopWindowXamlSource? _xamlSource;
 
     public App()
     {
@@ -27,47 +29,63 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Startup.Log("OnLaunched");
-        var queue = DispatcherQueue.GetForCurrentThread();
-        _startTimer = queue.CreateTimer();
-        _startTimer.Interval = TimeSpan.FromMilliseconds(50);
-        _startTimer.IsRepeating = false;
-        _startTimer.Tick += OnStartTimerTick;
-        _startTimer.Start();
-        Startup.Log("Timer started");
+        ShowNativeProbe();
+        ShowXamlProbe();
+        Startup.Log("OnLaunched done");
     }
 
-    private void OnStartTimerTick(DispatcherQueueTimer timer, object args)
+    private static UIElement CreateProbeContent()
     {
-        timer.Stop();
-        timer.Tick -= OnStartTimerTick;
-        Startup.Log("Timer fired");
-        ShowProbeWindow();
+        return new TextBlock
+        {
+            Text = "To jest okno testowe. WinUI działa.",
+            Margin = new Thickness(32),
+            FontSize = 22
+        };
     }
 
-    private void ShowProbeWindow()
+    private void ShowNativeProbe()
+    {
+        try
+        {
+            Startup.Log("Creating standalone AppWindow");
+            _nativeWindow = AppWindow.Create();
+            _nativeWindow.Title = "MapaNotatek AppWindow";
+            _nativeWindow.MoveAndResize(new RectInt32(80, 80, 720, 420));
+            _nativeWindow.Destroying += (_, _) => Startup.Log("AppWindow destroying");
+            _nativeWindow.Show(true);
+            Startup.Log("Standalone AppWindow.Show OK");
+
+            _xamlSource = new DesktopWindowXamlSource();
+            _xamlSource.Initialize(_nativeWindow.Id);
+            _xamlSource.Content = CreateProbeContent();
+            Startup.Log("Xaml island OK");
+        }
+        catch (Exception ex)
+        {
+            Startup.Log("Native probe FAIL: " + ex);
+        }
+    }
+
+    private void ShowXamlProbe()
     {
         try
         {
             Startup.Log("Creating probe Window");
             var probe = new Window { Title = "MapaNotatek test" };
             Startup.Log("Window constructed");
-            probe.Content = new TextBlock
-            {
-                Text = "To jest okno testowe. WinUI działa.",
-                Margin = new Thickness(32),
-                FontSize = 22
-            };
+            probe.Content = CreateProbeContent();
             probe.Closed += (_, _) => Startup.Log("Probe window closed");
             _window = probe;
             Startup.Log("Calling Activate");
             probe.Activate();
-            Startup.Log("Activate returned");
+            Startup.Log("Activate returned Visible=" + probe.Visible);
 
             var hwnd = WindowNative.GetWindowHandle(probe);
             Startup.Log("HWND=" + hwnd);
-            probe.AppWindow.MoveAndResize(new RectInt32(120, 120, 720, 420));
+            probe.AppWindow.MoveAndResize(new RectInt32(200, 200, 720, 420));
             probe.AppWindow.Show(true);
-            Startup.Log("XAML AppWindow.Show OK");
+            Startup.Log("XAML AppWindow.Show OK IsVisible=" + probe.AppWindow.IsVisible);
             Startup.ShowHwnd(hwnd);
             Startup.Log("Win32 ShowWindow done");
         }

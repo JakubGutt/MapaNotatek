@@ -7,12 +7,17 @@ namespace MapaNotatek;
 
 public static class Program
 {
+    [DllImport("Microsoft.ui.xaml.dll")]
+    private static extern void XamlCheckProcessRequirements();
+
     [STAThread]
     private static void Main(string[] args)
     {
         try
         {
             Console.WriteLine("MapaNotatek: start");
+            XamlCheckProcessRequirements();
+            Console.WriteLine("MapaNotatek: XamlCheck OK");
             ComWrappersSupport.InitializeComWrappers();
             Console.WriteLine("MapaNotatek: COM OK");
             Application.Start((ApplicationInitializationCallbackParams p) =>
