@@ -14,10 +14,10 @@ namespace MapaNotatek;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
-    private readonly GraphView GraphControl = new();
-    private readonly NoteListView NotesControl = new();
-    private readonly TaskListView TasksControl = new();
-    private readonly EditorPanel EditorControl = new();
+    private readonly GraphView GraphControl;
+    private readonly NoteListView NotesControl;
+    private readonly TaskListView TasksControl;
+    private readonly EditorPanel EditorControl;
     private int _panelIndex;
     private float _lastZoom = 1;
     private bool _zoomSaveReady;
@@ -26,6 +26,10 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "MapaNotatek";
+        GraphControl = new GraphView();
+        NotesControl = new NoteListView();
+        TasksControl = new TaskListView();
+        EditorControl = new EditorPanel();
         GraphHost.Children.Add(GraphControl);
         NotesHost.Children.Add(NotesControl);
         TasksHost.Children.Add(TasksControl);
@@ -92,11 +96,19 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(80, 80, 1440, 900));
+            AppWindow.Show();
         }
         catch
         {
-            // Ignore when AppWindow is not ready.
+            try
+            {
+                AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
+            }
+            catch
+            {
+                // Ignore when AppWindow is not ready.
+            }
         }
     }
 

@@ -9,14 +9,27 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += (_, args) =>
+        {
+            Startup.Fail(args.Exception?.ToString() ?? args.Message);
+            args.Handled = true;
+        };
     }
 
     public static MainWindow? MainAppWindow { get; private set; }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        MainAppWindow = new MainWindow();
-        _window = MainAppWindow;
-        _window.Activate();
+        try
+        {
+            MainAppWindow = new MainWindow();
+            _window = MainAppWindow;
+            MainAppWindow.Activate();
+            MainAppWindow.AppWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            Startup.Fail(ex.ToString());
+        }
     }
 }
