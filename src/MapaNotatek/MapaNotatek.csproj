@@ -23,17 +23,21 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**\obj\**;**\bin\**</DefaultItemExcludes>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
-    <ApplicationDefinition Include="App.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </ApplicationDefinition>
-    <Page Include="**\*.xaml" Exclude="App.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
+    <ApplicationDefinition Include="App.xaml" />
+    <Page Include="MainWindow.xaml" />
+    <Page Include="Views\CommandPaletteDialog.xaml" />
+    <Page Include="Views\EditorPanel.xaml" />
+    <Page Include="Views\GraphView.xaml" />
+    <Page Include="Views\NoteListView.xaml" />
+    <Page Include="Views\SettingsDialog.xaml" />
+    <Page Include="Views\ShortcutsDialog.xaml" />
+    <Page Include="Views\TaskListView.xaml" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 

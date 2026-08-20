@@ -1,4 +1,4 @@
-using Microsoft.UI.Windowing;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
@@ -9,7 +9,7 @@ namespace MapaNotatek;
 public partial class App : Application
 {
     private Window? _window;
-    private AppWindow? _nativeWindow;
+    private DispatcherQueueTimer? _startTimer;
 
     public App()
     {
@@ -27,6 +27,20 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Startup.Log("OnLaunched");
+        var queue = DispatcherQueue.GetForCurrentThread();
+        _startTimer = queue.CreateTimer();
+        _startTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _startTimer.IsRepeating = false;
+        _startTimer.Tick += OnStartTimerTick;
+        _startTimer.Start();
+        Startup.Log("Timer started");
+    }
+
+    private void OnStartTimerTick(DispatcherQueueTimer timer, object args)
+    {
+        timer.Stop();
+        timer.Tick -= OnStartTimerTick;
+        Startup.Log("Timer fired");
         ShowProbeWindow();
     }
 
@@ -34,13 +48,6 @@ public partial class App : Application
     {
         try
         {
-            Startup.Log("Creating standalone AppWindow");
-            _nativeWindow = AppWindow.Create();
-            _nativeWindow.Title = "MapaNotatek AppWindow";
-            _nativeWindow.MoveAndResize(new RectInt32(80, 80, 640, 360));
-            _nativeWindow.Show(true);
-            Startup.Log("Standalone AppWindow.Show OK");
-
             Startup.Log("Creating probe Window");
             var probe = new Window { Title = "MapaNotatek test" };
             Startup.Log("Window constructed");
@@ -50,6 +57,7 @@ public partial class App : Application
                 Margin = new Thickness(32),
                 FontSize = 22
             };
+            probe.Closed += (_, _) => Startup.Log("Probe window closed");
             _window = probe;
             Startup.Log("Calling Activate");
             probe.Activate();
