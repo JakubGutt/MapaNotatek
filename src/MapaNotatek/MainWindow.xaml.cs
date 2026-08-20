@@ -14,6 +14,10 @@ namespace MapaNotatek;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
+    private readonly GraphView GraphControl = new();
+    private readonly NoteListView NotesControl = new();
+    private readonly TaskListView TasksControl = new();
+    private readonly EditorPanel EditorControl = new();
     private int _panelIndex;
     private float _lastZoom = 1;
     private bool _zoomSaveReady;
@@ -22,6 +26,10 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "MapaNotatek";
+        GraphHost.Children.Add(GraphControl);
+        NotesHost.Children.Add(NotesControl);
+        TasksHost.Children.Add(TasksControl);
+        EditorHost.Children.Add(EditorControl);
         _vm = new MainViewModel(DispatcherQueue);
         GraphControl.ViewModel = _vm;
         NotesControl.ViewModel = _vm;
@@ -272,6 +280,9 @@ public sealed partial class MainWindow : Window
         GraphControl.Visibility = kind == CenterViewKind.Graph ? Visibility.Visible : Visibility.Collapsed;
         NotesControl.Visibility = kind == CenterViewKind.Notes ? Visibility.Visible : Visibility.Collapsed;
         TasksControl.Visibility = kind == CenterViewKind.Tasks ? Visibility.Visible : Visibility.Collapsed;
+        GraphHost.Visibility = GraphControl.Visibility;
+        NotesHost.Visibility = NotesControl.Visibility;
+        TasksHost.Visibility = TasksControl.Visibility;
         GraphRadio.IsChecked = kind == CenterViewKind.Graph;
         NotesRadio.IsChecked = kind == CenterViewKind.Notes;
         TasksRadio.IsChecked = kind == CenterViewKind.Tasks;
@@ -507,28 +518,28 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && (e.Key == VirtualKey.OemComma || e.Key == VirtualKey.Separator))
+        if (ctrl && (IsVk(e.Key, 0xBC) || e.Key == VirtualKey.Separator))
         {
             _ = ShowSettingsAsync();
             e.Handled = true;
             return;
         }
 
-        if (ctrl && (e.Key == VirtualKey.OemQuestion || e.Key == VirtualKey.Divide || e.OriginalKey == VirtualKey.Oem2))
+        if (ctrl && (IsVk(e.Key, 0xBF) || e.Key == VirtualKey.Divide || IsVk(e.OriginalKey, 0xBF)))
         {
             _ = ShowShortcutsAsync();
             e.Handled = true;
             return;
         }
 
-        if (ctrl && e.Key is VirtualKey.Add or VirtualKey.OemPlus)
+        if (ctrl && (e.Key == VirtualKey.Add || IsVk(e.Key, 0xBB)))
         {
             ChangeZoom(0.1f);
             e.Handled = true;
             return;
         }
 
-        if (ctrl && e.Key is VirtualKey.Subtract or VirtualKey.OemMinus)
+        if (ctrl && (e.Key == VirtualKey.Subtract || IsVk(e.Key, 0xBD)))
         {
             ChangeZoom(-0.1f);
             e.Handled = true;
@@ -656,4 +667,6 @@ public sealed partial class MainWindow : Window
 
     private static bool IsDown(VirtualKey key) =>
         InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private static bool IsVk(VirtualKey key, int nativeCode) => (int)key == nativeCode;
 }
