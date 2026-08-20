@@ -1,4 +1,6 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace MapaNotatek;
 
@@ -22,16 +24,34 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Startup.Log("OnLaunched");
+        var queue = DispatcherQueue.GetForCurrentThread();
+        var queued = queue.TryEnqueue(() =>
+        {
+            Startup.Log("StartWindow queued");
+            ShowProbeWindow();
+        });
+        Startup.Log(queued ? "TryEnqueue OK" : "TryEnqueue failed");
+        if (!queued)
+        {
+            ShowProbeWindow();
+        }
+    }
+
+    private void ShowProbeWindow()
+    {
         try
         {
-            MainAppWindow = new MainWindow();
-            _window = MainAppWindow;
-            Startup.Log("Window created, activating");
-            MainAppWindow.Activate();
-            Startup.Log("Activate OK");
-            MainAppWindow.ApplyWindowSize();
-            MainAppWindow.LoadWorkspace();
-            Startup.Log("Workspace loaded");
+            Startup.Log("Creating probe Window");
+            var probe = new Window { Title = "MapaNotatek test" };
+            probe.Content = new TextBlock
+            {
+                Text = "To jest okno testowe. WinUI działa.",
+                Margin = new Thickness(32),
+                FontSize = 22
+            };
+            _window = probe;
+            probe.Activate();
+            Startup.Log("Probe Activate OK");
         }
         catch (Exception ex)
         {
