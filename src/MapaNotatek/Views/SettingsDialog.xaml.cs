@@ -7,7 +7,7 @@ using MapaNotatek.ViewModels;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class SettingsDialog : ContentDialog
+public sealed partial class SettingsDialog : UserControl
 {
     public SettingsDialog()
     {

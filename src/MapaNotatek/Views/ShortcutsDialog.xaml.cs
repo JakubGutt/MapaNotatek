@@ -3,7 +3,7 @@ using MapaNotatek.Services;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class ShortcutsDialog : ContentDialog
+public sealed partial class ShortcutsDialog : UserControl
 {
     public ShortcutsDialog()
     {

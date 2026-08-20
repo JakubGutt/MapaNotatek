@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.System;
-using Windows.UI.Core;
 using MapaNotatek.Models;
 using MapaNotatek.Services;
 using MapaNotatek.ViewModels;
@@ -67,7 +66,7 @@ public sealed partial class MainWindow : Window
         UpdateEditorVisibility();
     }
 
-    private void OnFirstActivated(object sender, WindowActivatedEventArgs args)
+    private void OnFirstActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
     {
         Activated -= OnFirstActivated;
         _lastZoom = (float)_vm.State.Zoom;
@@ -370,28 +369,53 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowSettingsAsync()
     {
-        var dialog = new SettingsDialog
+        var panel = new SettingsDialog
         {
-            XamlRoot = Content.XamlRoot,
             ViewModel = _vm,
             HostWindow = this
         };
-        dialog.Bind();
+        panel.Bind();
+        var dialog = new ContentDialog
+        {
+            Title = "Ustawienia",
+            Content = panel,
+            PrimaryButtonText = "Zamknij",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot
+        };
         await dialog.ShowAsync();
     }
 
     private async Task ShowShortcutsAsync()
     {
-        var dialog = new ShortcutsDialog { XamlRoot = Content.XamlRoot };
+        var dialog = new ContentDialog
+        {
+            Title = "Skróty klawiszowe",
+            Content = new ShortcutsDialog(),
+            PrimaryButtonText = "Zamknij",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot
+        };
         await dialog.ShowAsync();
     }
 
     private async Task ShowCommandsAsync()
     {
-        var dialog = new CommandPaletteDialog { XamlRoot = Content.XamlRoot };
-        dialog.SetCommands(BuildCommands());
+        var palette = new CommandPaletteDialog();
+        palette.SetCommands(BuildCommands());
+        var dialog = new ContentDialog
+        {
+            Title = "Polecenia",
+            Content = palette,
+            PrimaryButtonText = "Uruchom",
+            CloseButtonText = "Anuluj",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot
+        };
+        palette.CloseRequested = dialog.Hide;
+        dialog.PrimaryButtonClick += (_, _) => palette.Confirm();
         await dialog.ShowAsync();
-        dialog.Chosen?.Run();
+        palette.Chosen?.Run();
     }
 
     private IEnumerable<AppCommand> BuildCommands() =>
@@ -631,5 +655,5 @@ public sealed partial class MainWindow : Window
     }
 
     private static bool IsDown(VirtualKey key) =>
-        InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(CoreVirtualKeyStates.Down);
+        InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 }

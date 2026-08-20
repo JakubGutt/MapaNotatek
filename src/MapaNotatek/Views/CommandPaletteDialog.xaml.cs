@@ -4,7 +4,7 @@ using MapaNotatek.Models;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class CommandPaletteDialog : ContentDialog
+public sealed partial class CommandPaletteDialog : UserControl
 {
     private List<AppCommand> _all = [];
 
@@ -12,16 +12,18 @@ public sealed partial class CommandPaletteDialog : ContentDialog
     {
         InitializeComponent();
         CommandsList.SelectionMode = ListViewSelectionMode.Single;
-        PrimaryButtonClick += OnPrimary;
     }
 
     public AppCommand? Chosen { get; private set; }
+    public Action? CloseRequested { get; set; }
 
     public void SetCommands(IEnumerable<AppCommand> commands)
     {
         _all = commands.ToList();
         ApplyFilter();
     }
+
+    public void Confirm() => Chosen = SelectedCommand();
 
     private void OnFilterChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
 
@@ -43,13 +45,8 @@ public sealed partial class CommandPaletteDialog : ContentDialog
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        Chosen = SelectedCommand();
-        Hide();
-    }
-
-    private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
-    {
-        Chosen = SelectedCommand();
+        Confirm();
+        CloseRequested?.Invoke();
     }
 
     private AppCommand? SelectedCommand()
