@@ -1,0 +1,18 @@
+<ContentDialog
+    x:Class="MapaNotatek.Views.SettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Ustawienia"
+    PrimaryButtonText="Zamknij"
+    DefaultButton="Primary">
+    <ScrollViewer MaxHeight="480">
+        <StackPanel Spacing="12" Width="420">
+            <TextBox x:Name="DataFolderBox" Header="Folder danych" IsReadOnly="True" />
+            <Button Content="Zmień folder danych…" Click="OnChangeFolder" />
+            <TextBlock x:Name="ThemeText" />
+            <Button Content="Eksportuj kopię…" Click="OnExport" ToolTipService.ToolTip="Skopiuj cały folder danych" />
+            <TextBlock Text="Skróty klawiszowe" FontWeight="SemiBold" />
+            <ListView x:Name="ShortcutsList" MaxHeight="240" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

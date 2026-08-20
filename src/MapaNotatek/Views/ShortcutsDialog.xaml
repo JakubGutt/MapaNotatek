@@ -1,0 +1,9 @@
+<ContentDialog
+    x:Class="MapaNotatek.Views.ShortcutsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Skróty klawiszowe"
+    PrimaryButtonText="Zamknij"
+    DefaultButton="Primary">
+    <ListView x:Name="ShortcutsList" Width="420" MaxHeight="480" />
+</ContentDialog>
