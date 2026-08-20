@@ -33,8 +33,32 @@ public static class Program
 
 internal static class Startup
 {
+    private const int SwShownormal = 1;
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool UpdateWindow(IntPtr hWnd);
+
+    public static void ShowHwnd(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            Log("ShowHwnd skipped: HWND=0");
+            return;
+        }
+
+        ShowWindow(hwnd, SwShownormal);
+        UpdateWindow(hwnd);
+        SetForegroundWindow(hwnd);
+    }
 
     public static void Log(string message)
     {
