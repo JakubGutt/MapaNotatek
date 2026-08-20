@@ -13,19 +13,35 @@ namespace MapaNotatek;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly MainViewModel _vm;
-    private readonly GraphView GraphControl;
-    private readonly NoteListView NotesControl;
-    private readonly TaskListView TasksControl;
-    private readonly EditorPanel EditorControl;
+    private MainViewModel _vm = null!;
+    private GraphView GraphControl = null!;
+    private NoteListView NotesControl = null!;
+    private TaskListView TasksControl = null!;
+    private EditorPanel EditorControl = null!;
     private int _panelIndex;
     private float _lastZoom = 1;
     private bool _zoomSaveReady;
+    private bool _workspaceLoaded;
 
     public MainWindow()
     {
         InitializeComponent();
         Title = "MapaNotatek";
+        StatusText.Text = "Ładowanie…";
+        TryResize();
+    }
+
+    public void LoadWorkspace()
+    {
+        if (_workspaceLoaded)
+        {
+            return;
+        }
+
+        _workspaceLoaded = true;
+        Startup.Log("LoadWorkspace");
+        try
+        {
         GraphControl = new GraphView();
         NotesControl = new NoteListView();
         TasksControl = new TaskListView();
@@ -46,8 +62,6 @@ public sealed partial class MainWindow : Window
         EditorControl.Refresh();
         ArchivedCheck.IsChecked = _vm.ShowArchived;
         StatusText.Text = _vm.DataFolder;
-        TryResize();
-
         _vm.GraphChanged += OnGraphChanged;
         _vm.EditorChanged += OnEditorChanged;
         _vm.PropertyChanged += (_, args) =>
@@ -73,9 +87,16 @@ public sealed partial class MainWindow : Window
         };
 
         RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), handledEventsToo: true);
-        Closed += (_, _) => _vm.FlushPendingSaves();
+        Closed += (_, _) => _vm?.FlushPendingSaves();
         Activated += OnFirstActivated;
         UpdateEditorVisibility();
+        OnFirstActivated(this, null!);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Błąd ładowania: " + ex.Message;
+            Startup.Fail(ex.ToString());
+        }
     }
 
     private void OnFirstActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)

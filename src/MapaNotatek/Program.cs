@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Microsoft.Windows.ApplicationModel.DynamicDependency;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using WinRT;
@@ -13,29 +12,22 @@ public static class Program
     {
         try
         {
+            Console.WriteLine("MapaNotatek: start");
             ComWrappersSupport.InitializeComWrappers();
-            try
+            Console.WriteLine("MapaNotatek: COM OK");
+            Application.Start((ApplicationInitializationCallbackParams p) =>
             {
-                Bootstrap.TryInitialize(0x00020004, out _);
-            }
-            catch
-            {
-                // Self-contained builds already include the runtime.
-            }
-
-            Application.Start(OnAppStart);
+                Console.WriteLine("MapaNotatek: Application.Start");
+                var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
+                SynchronizationContext.SetSynchronizationContext(context);
+                _ = new App();
+            });
+            Console.WriteLine("MapaNotatek: Application.Start zakończone");
         }
         catch (Exception ex)
         {
             Startup.Fail(ex.ToString());
         }
-    }
-
-    private static void OnAppStart(ApplicationInitializationCallbackParams args)
-    {
-        var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
-        SynchronizationContext.SetSynchronizationContext(context);
-        _ = new App();
     }
 }
 
@@ -44,8 +36,23 @@ internal static class Startup
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
 
+    public static void Log(string message)
+    {
+        Console.WriteLine(message);
+        try
+        {
+            var path = Path.Combine(Path.GetTempPath(), "MapaNotatek-startup.log");
+            File.AppendAllText(path, $"{DateTime.Now:O} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Ignore logging failures.
+        }
+    }
+
     public static void Fail(string message)
     {
+        Log("FAIL: " + message);
         try
         {
             var path = Path.Combine(Path.GetTempPath(), "MapaNotatek-crash.log");

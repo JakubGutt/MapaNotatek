@@ -8,6 +8,7 @@ public partial class App : Application
 
     public App()
     {
+        Startup.Log("App ctor");
         InitializeComponent();
         UnhandledException += (_, args) =>
         {
@@ -20,12 +21,24 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        Startup.Log("OnLaunched");
         try
         {
             MainAppWindow = new MainWindow();
             _window = MainAppWindow;
+            Startup.Log("Window created, activating");
             MainAppWindow.Activate();
-            MainAppWindow.AppWindow.Show();
+            try
+            {
+                MainAppWindow.AppWindow.Show();
+            }
+            catch (Exception ex)
+            {
+                Startup.Log("AppWindow.Show: " + ex.Message);
+            }
+
+            MainAppWindow.LoadWorkspace();
+            Startup.Log("Workspace loaded");
         }
         catch (Exception ex)
         {
