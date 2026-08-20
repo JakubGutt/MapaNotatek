@@ -13,9 +13,14 @@ public static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Startup.Log("Unhandled: " + e.ExceptionObject);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            Startup.Log("ProcessExit");
         try
         {
             Console.WriteLine("MapaNotatek: start");
+            Console.Out.Flush();
             XamlCheckProcessRequirements();
             Console.WriteLine("MapaNotatek: XamlCheck OK");
             ComWrappersSupport.InitializeComWrappers();
@@ -23,11 +28,13 @@ public static class Program
             Application.Start((ApplicationInitializationCallbackParams p) =>
             {
                 Console.WriteLine("MapaNotatek: Application.Start");
+                Console.Out.Flush();
                 var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
                 SynchronizationContext.SetSynchronizationContext(context);
                 _ = new App();
             });
             Console.WriteLine("MapaNotatek: Application.Start zakończone");
+            Console.Out.Flush();
         }
         catch (Exception ex)
         {
@@ -68,6 +75,7 @@ internal static class Startup
     public static void Log(string message)
     {
         Console.WriteLine(message);
+        Console.Out.Flush();
         try
         {
             var path = Path.Combine(Path.GetTempPath(), "MapaNotatek-startup.log");
