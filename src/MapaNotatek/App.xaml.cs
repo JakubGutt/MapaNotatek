@@ -28,15 +28,8 @@ public partial class App : Application
             _window = MainAppWindow;
             Startup.Log("Window created, activating");
             MainAppWindow.Activate();
-            try
-            {
-                MainAppWindow.AppWindow.Show();
-            }
-            catch (Exception ex)
-            {
-                Startup.Log("AppWindow.Show: " + ex.Message);
-            }
-
+            Startup.Log("Activate OK");
+            MainAppWindow.ApplyWindowSize();
             MainAppWindow.LoadWorkspace();
             Startup.Log("Workspace loaded");
         }

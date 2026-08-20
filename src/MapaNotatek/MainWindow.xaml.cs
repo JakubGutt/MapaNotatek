@@ -25,10 +25,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        Startup.Log("MainWindow ctor");
         InitializeComponent();
+        Startup.Log("InitializeComponent OK");
         Title = "MapaNotatek";
         StatusText.Text = "Ładowanie…";
-        TryResize();
+        Startup.Log("MainWindow ctor done");
     }
 
     public void LoadWorkspace()
@@ -113,23 +115,15 @@ public sealed partial class MainWindow : Window
         GraphControl.Focus(FocusState.Programmatic);
     }
 
-    private void TryResize()
+    public void ApplyWindowSize()
     {
         try
         {
-            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(80, 80, 1440, 900));
-            AppWindow.Show();
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
         }
-        catch
+        catch (Exception ex)
         {
-            try
-            {
-                AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
-            }
-            catch
-            {
-                // Ignore when AppWindow is not ready.
-            }
+            Startup.Log("Resize: " + ex.Message);
         }
     }
 
