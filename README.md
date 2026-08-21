@@ -14,17 +14,28 @@ Aplikacji **nie da się skompilować ani uruchomić na macOS**. Kod można edyto
 
 ## Uruchomienie
 
-W PowerShell, w katalogu repozytorium:
+Na Windows 11 x64 **nie używaj** `dotnet run`. Uruchamia to proces z `dotnet.exe`, a biblioteki WinUI leżą obok `.exe` — okno wtedy często w ogóle nie wstaje.
+
+1. Pobierz **świeży** ZIP z `main` (nie dokładaj na stary folder z `obj`).
+2. (Zalecane) zainstaluj [Windows App Runtime 2.4 x64](https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe).
+3. W PowerShell, w katalogu rozpakowanego repo:
 
 ```powershell
-dotnet restore MapaNotatek.sln
-dotnet build src\MapaNotatek\MapaNotatek.csproj -c Debug -p:Platform=ARM64
-dotnet run --project src\MapaNotatek\MapaNotatek.csproj -c Debug -p:Platform=ARM64
+Set-ExecutionPolicy -Scope Process Bypass
+.\run-windows.ps1
 ```
 
-Na komputerze x64 użyj `-p:Platform=x64`.
+Skrypt czyści `obj`/`bin`, publikuje self-contained x64 i odpala `MapaNotatek.exe` z katalogu, w którym leży `Microsoft.ui.xaml.dll`.
 
-W Visual Studio otwórz `MapaNotatek.sln`, wybierz platformę **ARM64** albo **x64** i naciśnij F5.
+Na ARM64:
+
+```powershell
+dotnet publish src\MapaNotatek\MapaNotatek.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true -p:WindowsAppSDKSelfContained=true
+```
+
+Potem uruchom `MapaNotatek.exe` z folderu `publish`.
+
+W Visual Studio otwórz `MapaNotatek.sln`, platforma **x64** albo **ARM64**, F5.
 
 ## Lokalizacja danych
 
