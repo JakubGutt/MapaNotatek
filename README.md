@@ -1,120 +1,100 @@
 # MapaNotatek
 
-Prosta, natywna aplikacja desktopowa Windows 11 do notatek i projektów. Działa całkowicie offline.
+Prosta, natywna aplikacja desktopowa do notatek i projektów. Działa całkowicie offline.
 
-## Wymagania
+Jeden kod źródłowy (Avalonia UI) — **macOS** i **Windows** (także Linux).
 
-- Windows 11 (x64 albo ARM64)
+## Wymagania (deweloper)
+
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- Windows App SDK 2.4.0 (pobierany automatycznie przez NuGet)
-- Visual Studio 2022/2026 z obciążeniem **WinUI application development** albo sam `dotnet` CLI
-- Tryb dewelopera w Windows nie jest wymagany (aplikacja jest unpackaged)
+- macOS 12+ albo Windows 10/11
 
-Aplikacji **nie da się skompilować ani uruchomić na macOS**. Kod można edytować na Macu, a budować i testować w Windows 11 — w tym w Windows 11 ARM w UTM.
+## Uruchomienie (dev)
 
-## Uruchomienie
+### macOS
 
-Na Windows 11 x64 **nie używaj** `dotnet run`. Uruchamia to proces z `dotnet.exe`, a biblioteki WinUI leżą obok `.exe` — okno wtedy często w ogóle nie wstaje.
+```bash
+chmod +x ./run-macos.sh ./publish-macos.sh
+./run-macos.sh
+```
 
-1. Pobierz **świeży** ZIP z `main` (nie dokładaj na stary folder z `obj`).
-2. (Zalecane) zainstaluj [Windows App Runtime 2.4 x64](https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe).
-3. W PowerShell, w katalogu rozpakowanego repo:
+### Windows
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\run-windows.ps1
 ```
 
-Skrypt czyści `obj`/`bin`, publikuje self-contained x64 i odpala `MapaNotatek.exe` z katalogu, w którym leży `Microsoft.ui.xaml.dll`.
+Albo na obu:
 
-Na ARM64:
-
-```powershell
-dotnet publish src\MapaNotatek\MapaNotatek.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true -p:WindowsAppSDKSelfContained=true
+```bash
+dotnet run --project src/MapaNotatek/MapaNotatek.csproj
 ```
 
-Potem uruchom `MapaNotatek.exe` z folderu `publish`.
+## Deploy / publikacja (dla użytkowników końcowych)
 
-W Visual Studio otwórz `MapaNotatek.sln`, platforma **x64** albo **ARM64**, F5.
+Self-contained — odbiorca **nie musi** mieć zainstalowanego .NET.
+
+### macOS
+
+```bash
+./publish-macos.sh            # arm64 albo x64 wg maszyny
+./publish-macos.sh osx-arm64  # Apple Silicon
+./publish-macos.sh osx-x64    # Intel
+```
+
+Wynik: `artifacts/osx-arm64/MapaNotatek` (albo `osx-x64`).
+
+Pierwsze uruchomienie z Finder czasem wymaga: PPM → Otwórz (Gatekeeper).
+
+### Windows
+
+```powershell
+.\publish-windows.ps1           # x64 albo arm64 wg maszyny
+.\publish-windows.ps1 win-x64
+.\publish-windows.ps1 win-arm64
+```
+
+Wynik: `artifacts\win-x64\MapaNotatek.exe`.
+
+CI (GitHub Actions) buduje i wrzuca artefakty dla `osx-arm64` oraz `win-x64` przy każdym pushu/PR.
 
 ## Lokalizacja danych
 
-Domyślny folder:
-
-`%USERPROFILE%\Documents\MapaNotatek`
-
-Struktura:
+| Platforma | Domyślny folder |
+| --- | --- |
+| macOS / Linux | `~/Documents/MapaNotatek` |
+| Windows | `%USERPROFILE%\Documents\MapaNotatek` |
 
 ```text
 MapaNotatek/
   Projects/        # pliki .md projektów
   Notes/           # pliki .md notatek
-  Trash/           # notatki przeniesione skrótem Delete
+  Trash/           # notatki w koszu
   app-state.json   # położenie kulek, zoom, folder danych
 ```
 
-Każdy projekt i każda notatka to osobny plik Markdown z krótkim frontmatter (`id`, `type`, `tags`, `created`, `modified`). Pliki można otworzyć w Notatniku.
-
-Folder danych można zmienić w **Ustawienia** (`Ctrl+,`). **Eksportuj kopię** kopiuje cały folder do wybranej lokalizacji.
-
-## Budowanie ARM64 i x64
-
-```powershell
-dotnet build src\MapaNotatek\MapaNotatek.csproj -c Release -p:Platform=ARM64 -r win-arm64
-dotnet build src\MapaNotatek\MapaNotatek.csproj -c Release -p:Platform=x64 -r win-x64
-```
-
-Publikacja self-contained (runtime Windows App SDK jest dołączany):
-
-```powershell
-dotnet publish src\MapaNotatek\MapaNotatek.csproj -c Release -p:Platform=ARM64 -r win-arm64 --self-contained
-dotnet publish src\MapaNotatek\MapaNotatek.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained
-```
-
-Wyjście trafia do `src\MapaNotatek\bin\Release\net10.0-windows10.0.26100.0\<rid>\`.
+Folder danych i eksport kopii: **Ustawienia** (`⌘,` / `Ctrl+,`).
 
 ## Skróty
 
+Na macOS: **⌘**, na Windows/Linux: **Ctrl**.
+
 | Skrót | Działanie |
 | --- | --- |
-| Ctrl+N | Nowa notatka |
-| Ctrl+Shift+N | Nowy projekt |
-| Ctrl+S | Zapisz natychmiast |
-| Ctrl+F | Wyszukiwarka |
-| Ctrl+Z | Cofnij |
-| Ctrl+Y | Ponów |
-| Ctrl+1 | Widok grafu |
-| Ctrl+2 | Lista notatek |
-| Ctrl+3 | Lista otwartych zadań |
+| Mod+N | Nowa notatka |
+| Mod+Shift+N | Nowy projekt |
+| Mod+S | Zapisz |
+| Mod+F | Szukaj |
+| Mod+Z | Cofnij |
+| Mod+Shift+Z / Ctrl+Y | Ponów |
+| Mod+1 / 2 / 3 | Graf / Notatki / Zadania |
 | F6 | Następny panel |
-| Shift+F6 | Poprzedni panel |
-| Strzałki | Przechodzenie między kulkami (graf) |
-| Enter | Otwórz zaznaczoną kulkę |
-| Esc | Zamknij prawy panel albo wróć do grafu |
+| Esc | Zamknij panel |
 | F2 | Zmień nazwę |
-| Ctrl++ | Powiększ graf |
-| Ctrl+- | Pomniejsz graf |
-| Ctrl+0 | Domyślne powiększenie |
-| Ctrl+Shift+P | Lista poleceń |
-| Ctrl+/ | Lista skrótów |
-| Ctrl+, | Ustawienia |
-| Ctrl+W | Zamknij panel edycji |
-| Delete | Przenieś notatkę do kosza |
-
-Skróty grafu (strzałki, Enter, F2, Delete) działają, gdy aktywny jest graf albo lista. W edytorze tekstu nie są przechwytywane strzałki, Delete, Backspace, Ctrl+C/X/V/A/Z/Y.
-
-## Kompilacja na macOS (stan środowiska)
-
-Ten kod został przygotowany na macOS. `dotnet restore` z .NET SDK 10.0.400 **zakończył się powodzeniem**.
-
-Obie kompilacje:
-
-```powershell
-dotnet build src/MapaNotatek/MapaNotatek.csproj -c Release -p:Platform=ARM64 -r win-arm64
-dotnet build src/MapaNotatek/MapaNotatek.csproj -c Release -p:Platform=x64 -r win-x64
-```
-
-**nie powiodły się na macOS**, ponieważ kompilator XAML (`XamlCompiler.exe`) to binarka Windows i nie uruchamia się na Darwin (`cannot execute binary file`). Nie da się więc tutaj zweryfikować poprawności kompilacji C#/XAML ani uruchomić aplikacji.
-
-Pełną kompilację ARM64 i x64 oraz testy (w tym Windows 11 ARM w UTM) trzeba wykonać na Windows 11.
-
+| Mod++ / Mod+- / Mod+0 | Zoom |
+| Mod+Shift+P | Polecenia |
+| Mod+/ | Skróty |
+| Mod+, | Ustawienia |
+| Mod+W | Zamknij panel edycji |
+| Delete / ⌫ | Kosz (notatka) |

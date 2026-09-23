@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
-using Microsoft.UI.Dispatching;
+using Avalonia;
+using Avalonia.Styling;
+using Avalonia.Threading;
 using MapaNotatek.Models;
 using MapaNotatek.Services;
 
@@ -15,7 +17,7 @@ public enum CenterViewKind
 public sealed class MainViewModel : ObservableObject
 {
     private readonly AppStateStore _stateStore = new();
-    private readonly DispatcherQueueTimer _saveTimer;
+    private readonly DispatcherTimer _saveTimer;
     private readonly Stack<(Action Undo, Action Redo)> _undo = new();
     private readonly Stack<(Action Undo, Action Redo)> _redo = new();
     private bool _suppressUndo;
@@ -32,17 +34,19 @@ public sealed class MainViewModel : ObservableObject
     private Note? _pendingSaveNote;
     private Project? _pendingSaveProject;
 
-    public MainViewModel(DispatcherQueue dispatcher)
+    public MainViewModel()
     {
         State = _stateStore.Load();
         Store = new MarkdownStore(State.DataFolder ?? _stateStore.DefaultDataFolder);
         Store.EnsureFolders();
         _showArchived = State.ShowArchived;
         _focusedProjectId = State.FocusedProjectId;
-        _saveTimer = dispatcher.CreateTimer();
-        _saveTimer.Interval = TimeSpan.FromMilliseconds(800);
-        _saveTimer.IsRepeating = false;
-        _saveTimer.Tick += (_, _) => FlushPendingSaves();
+        _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _saveTimer.Tick += (_, _) =>
+        {
+            _saveTimer.Stop();
+            FlushPendingSaves();
+        };
         Reload();
     }
 
@@ -142,8 +146,7 @@ public sealed class MainViewModel : ObservableObject
     public string? SelectedGraphId => _selectedGraphId;
     public bool SelectedGraphIsProject => _selectedGraphIsProject;
 
-    public string ThemeName =>
-        ApplicationThemeName();
+    public string ThemeName => ApplicationThemeName();
 
     public string DataFolder => Store.Root;
 
@@ -725,7 +728,6 @@ public sealed class MainViewModel : ObservableObject
 
     private IEnumerable<Note> VisibleGraphNotes()
     {
-        var projects = VisibleGraphProjects().ToList();
         foreach (var note in Notes)
         {
             if (!SearchService.Matches(SearchQuery, note))
@@ -746,11 +748,6 @@ public sealed class MainViewModel : ObservableObject
                 {
                     continue;
                 }
-            }
-
-            if (projects.Count > 0 && focused is null)
-            {
-                // keep unassigned notes visible on the full graph
             }
 
             yield return note;
@@ -828,16 +825,17 @@ public sealed class MainViewModel : ObservableObject
 
     private static string ApplicationThemeName()
     {
-        try
+        var variant = Application.Current?.ActualThemeVariant;
+        if (Equals(variant, ThemeVariant.Dark))
         {
-            var settings = new Windows.UI.ViewManagement.UISettings();
-            var color = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
-            var isDark = color.R < 128 && color.G < 128 && color.B < 128;
-            return isDark ? "Ciemny (systemowy)" : "Jasny (systemowy)";
+            return "Ciemny (systemowy)";
         }
-        catch
+
+        if (Equals(variant, ThemeVariant.Light))
         {
-            return "Systemowy";
+            return "Jasny (systemowy)";
         }
+
+        return "Systemowy";
     }
 }

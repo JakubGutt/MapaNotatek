@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MapaNotatek.Views.GraphView"
+             Focusable="True"
+             KeyDown="OnKeyDown">
+    <ScrollViewer x:Name="GraphScroll"
+                  HorizontalScrollBarVisibility="Auto"
+                  VerticalScrollBarVisibility="Auto"
+                  Background="Transparent"
+                  PointerWheelChanged="OnWheel">
+        <LayoutTransformControl x:Name="ZoomHost">
+            <Canvas x:Name="GraphCanvas"
+                    Width="4000"
+                    Height="4000"
+                    Background="Transparent"
+                    PointerPressed="OnCanvasPressed" />
+        </LayoutTransformControl>
+    </ScrollViewer>
+</UserControl>

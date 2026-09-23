@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MapaNotatek.Views.NoteListView"
+             Focusable="True">
+    <ListBox x:Name="NotesList"
+             DoubleTapped="OnItemDoubleTapped"
+             KeyDown="OnKeyDown">
+        <ListBox.ItemTemplate>
+            <DataTemplate>
+                <TextBlock Text="{ReflectionBinding Title}" />
+            </DataTemplate>
+        </ListBox.ItemTemplate>
+    </ListBox>
+</UserControl>

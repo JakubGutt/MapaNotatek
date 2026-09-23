@@ -1,0 +1,15 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MapaNotatek.Views.SettingsDialog">
+    <ScrollViewer MaxHeight="480">
+        <StackPanel Spacing="12" Width="420">
+            <TextBlock Text="Folder danych" FontWeight="SemiBold" />
+            <TextBox x:Name="DataFolderBox" IsReadOnly="True" />
+            <Button Content="Zmień folder danych…" Click="OnChangeFolder" />
+            <TextBlock x:Name="ThemeText" />
+            <Button Content="Eksportuj kopię…" Click="OnExport" />
+            <TextBlock Text="Skróty klawiszowe" FontWeight="SemiBold" />
+            <ListBox x:Name="ShortcutsList" MaxHeight="240" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

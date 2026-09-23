@@ -1,0 +1,52 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MapaNotatek.Views.EditorPanel">
+    <ScrollViewer>
+        <StackPanel Margin="12" Spacing="8">
+            <StackPanel x:Name="EmptyPanel">
+                <TextBlock Text="Wybierz projekt lub notatkę." Opacity="0.7" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel x:Name="ProjectPanel" IsVisible="False" Spacing="8">
+                <TextBlock Text="Projekt" Opacity="0.7" FontSize="12" />
+                <TextBlock Text="Nazwa" FontWeight="SemiBold" />
+                <TextBox x:Name="ProjectNameBox" PlaceholderText="Nazwa projektu" TextChanged="OnProjectChanged" />
+                <TextBlock Text="Opis" FontWeight="SemiBold" />
+                <TextBox x:Name="ProjectDescriptionBox"
+                         PlaceholderText="Krótki opis"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         MinHeight="80"
+                         TextChanged="OnProjectChanged" />
+                <TextBlock Text="Checklista projektu" FontWeight="SemiBold" />
+                <StackPanel x:Name="ProjectChecklistHost" Spacing="4" />
+                <Button Content="Dodaj zadanie" Click="OnAddProjectTask" />
+                <TextBlock Text="Powiązane notatki" FontWeight="SemiBold" Margin="0,8,0,0" />
+                <ListBox x:Name="RelatedNotesList" MaxHeight="180" DoubleTapped="OnRelatedNoteDoubleTapped" />
+                <TextBlock Text="Otwarte zadania z notatek" FontWeight="SemiBold" Margin="0,8,0,0" />
+                <StackPanel x:Name="ProjectOpenTasksHost" Spacing="4" />
+                <Button Content="Archiwizuj / przywróć" Click="OnArchiveProject" />
+            </StackPanel>
+
+            <StackPanel x:Name="NotePanel" IsVisible="False" Spacing="8">
+                <TextBlock Text="Notatka" Opacity="0.7" FontSize="12" />
+                <TextBlock Text="Tytuł" FontWeight="SemiBold" />
+                <TextBox x:Name="NoteTitleBox" PlaceholderText="Tytuł notatki" TextChanged="OnNoteChanged" />
+                <TextBlock Text="Treść" FontWeight="SemiBold" />
+                <TextBox x:Name="NoteBodyBox"
+                         PlaceholderText="Treść notatki"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         MinHeight="160"
+                         TextChanged="OnNoteChanged" />
+                <TextBlock Text="Tagi" FontWeight="SemiBold" />
+                <TextBox x:Name="NoteTagsBox" PlaceholderText="projekt-a, klient-x" TextChanged="OnNoteChanged" />
+                <TextBlock x:Name="NoteDatesText" Opacity="0.7" TextWrapping="Wrap" />
+                <TextBlock Text="Checklista" FontWeight="SemiBold" />
+                <StackPanel x:Name="NoteChecklistHost" Spacing="4" />
+                <Button Content="Dodaj zadanie" Click="OnAddNoteTask" />
+                <Button Content="Przenieś do kosza" Click="OnTrashNote" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

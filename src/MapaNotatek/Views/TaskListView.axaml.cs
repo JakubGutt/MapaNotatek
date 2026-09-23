@@ -1,11 +1,14 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.Media;
 using MapaNotatek.Models;
 using MapaNotatek.ViewModels;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class TaskListView : UserControl
+public partial class TaskListView : UserControl
 {
     public TaskListView()
     {
@@ -21,14 +24,11 @@ public sealed partial class TaskListView : UserControl
             return;
         }
 
-        TasksList.Items.Clear();
-        foreach (var task in ViewModel.VisibleTasks)
-        {
-            TasksList.Items.Add(CreateRow(task));
-        }
+        var rows = ViewModel.VisibleTasks.Select(CreateRow).ToList();
+        TasksList.ItemsSource = rows;
     }
 
-    private Grid CreateRow(OpenTask task)
+    private Border CreateRow(OpenTask task)
     {
         var check = new CheckBox
         {
@@ -36,9 +36,9 @@ public sealed partial class TaskListView : UserControl
             MinWidth = 32,
             VerticalAlignment = VerticalAlignment.Top
         };
-        check.Click += (_, _) =>
+        check.IsCheckedChanged += (_, _) =>
         {
-            if (ViewModel is not null)
+            if (ViewModel is not null && check.IsChecked != task.Item.IsDone)
             {
                 ViewModel.ToggleTask(task);
                 Bind();
@@ -51,18 +51,25 @@ public sealed partial class TaskListView : UserControl
         stack.Children.Add(text);
         stack.Children.Add(source);
 
-        var grid = new Grid { Tag = task, Padding = new Thickness(4, 6, 4, 6) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*")
+        };
         Grid.SetColumn(stack, 1);
         grid.Children.Add(check);
         grid.Children.Add(stack);
-        return grid;
+
+        return new Border
+        {
+            Child = grid,
+            Tag = task,
+            Padding = new Thickness(4, 6, 4, 6)
+        };
     }
 
-    private void OnItemClick(object sender, ItemClickEventArgs e)
+    private void OnItemDoubleTapped(object? sender, TappedEventArgs e)
     {
-        var task = (e.ClickedItem as FrameworkElement)?.Tag as OpenTask;
+        var task = (TasksList.SelectedItem as Control)?.Tag as OpenTask;
         if (task is null || ViewModel is null)
         {
             return;

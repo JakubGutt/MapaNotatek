@@ -1,36 +1,44 @@
-using Microsoft.UI;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
-using Windows.Foundation;
-using Windows.System;
-using Windows.UI;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Media;
 using MapaNotatek.Models;
 using MapaNotatek.Services;
 using MapaNotatek.ViewModels;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class GraphView : UserControl
+public partial class GraphView : UserControl
 {
-    private readonly Dictionary<string, FrameworkElement> _nodes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ScaleTransform _zoomTransform = new(1, 1);
+    private readonly Dictionary<string, Border> _nodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Line> _edges = [];
     private string? _dragId;
     private Point _dragOffset;
     private Point _pressPoint;
     private bool _dragging;
-    private bool _suppressZoomEvent;
+    private double _zoom = 1;
 
     public GraphView()
     {
         InitializeComponent();
+        ZoomHost.LayoutTransform = _zoomTransform;
     }
 
     public MainViewModel? ViewModel { get; set; }
 
-    public event Action<float>? ZoomChanged;
+    public event Action<double>? ZoomChanged;
+
+    public double ZoomFactor => _zoom;
+
+    public void SetZoom(double factor)
+    {
+        _zoom = Math.Clamp(factor, 0.25, 3);
+        _zoomTransform.ScaleX = _zoom;
+        _zoomTransform.ScaleY = _zoom;
+        ZoomChanged?.Invoke(_zoom);
+    }
 
     public void Refresh()
     {
@@ -55,11 +63,9 @@ public sealed partial class GraphView : UserControl
                 var to = LayoutService.Get(ViewModel.State.NodePositions, note.Id);
                 var line = new Line
                 {
-                    X1 = from.X,
-                    Y1 = from.Y,
-                    X2 = to.X,
-                    Y2 = to.Y,
-                    Stroke = ThemeBrush("TextFillColorSecondaryBrush", Color.FromArgb(255, 128, 128, 128)),
+                    StartPoint = new Point(from.X, from.Y),
+                    EndPoint = new Point(to.X, to.Y),
+                    Stroke = new SolidColorBrush(Color.FromArgb(255, 128, 128, 128)),
                     StrokeThickness = 1.5,
                     Tag = $"{project.Id}|{note.Id}"
                 };
@@ -81,15 +87,6 @@ public sealed partial class GraphView : UserControl
         HighlightSelection();
     }
 
-    public void SetZoom(float factor)
-    {
-        _suppressZoomEvent = true;
-        GraphScroll.ChangeView(null, null, factor);
-        _suppressZoomEvent = false;
-    }
-
-    public float ZoomFactor => GraphScroll.ZoomFactor;
-
     private void AddNode(string id, string title, bool isProject, bool alwaysShowLabel)
     {
         if (ViewModel is null)
@@ -100,9 +97,9 @@ public sealed partial class GraphView : UserControl
         var position = LayoutService.Get(ViewModel.State.NodePositions, id);
         var size = isProject ? LayoutService.ProjectDiameter : LayoutService.NoteDiameter;
         var fill = isProject
-            ? ThemeBrush("AccentFillColorDefaultBrush", AccentColor())
-            : ThemeBrush("ControlFillColorDefaultBrush", Color.FromArgb(255, 240, 240, 240));
-        var stroke = ThemeBrush("ControlStrokeColorDefaultBrush", Color.FromArgb(255, 160, 160, 160));
+            ? new SolidColorBrush(Color.FromArgb(255, 0, 120, 212))
+            : new SolidColorBrush(Color.FromArgb(255, 240, 240, 240));
+        var stroke = new SolidColorBrush(Color.FromArgb(255, 160, 160, 160));
 
         var ellipse = new Ellipse
         {
@@ -120,14 +117,13 @@ public sealed partial class GraphView : UserControl
             TextAlignment = TextAlignment.Center,
             MaxWidth = 140,
             FontSize = isProject ? 12 : 11,
-            Visibility = alwaysShowLabel ? Visibility.Visible : Visibility.Collapsed
+            IsVisible = alwaysShowLabel
         };
 
         var stack = new StackPanel
         {
             Width = 150,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Tag = new NodeTag(id, isProject, label, alwaysShowLabel, ellipse)
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         };
         stack.Children.Add(ellipse);
         stack.Children.Add(label);
@@ -135,7 +131,7 @@ public sealed partial class GraphView : UserControl
         var host = new Border
         {
             Child = stack,
-            Background = new SolidColorBrush(Colors.Transparent),
+            Background = Brushes.Transparent,
             Padding = new Thickness(4),
             CornerRadius = new CornerRadius(4),
             Tag = new NodeTag(id, isProject, label, alwaysShowLabel, ellipse)
@@ -143,7 +139,7 @@ public sealed partial class GraphView : UserControl
         host.PointerPressed += OnNodePressed;
         host.PointerMoved += OnNodeMoved;
         host.PointerReleased += OnNodeReleased;
-        host.PointerCanceled += OnNodeCanceled;
+        host.PointerCaptureLost += OnNodeCaptureLost;
         host.PointerEntered += OnNodeEntered;
         host.PointerExited += OnNodeExited;
         host.DoubleTapped += OnNodeDoubleTapped;
@@ -171,37 +167,37 @@ public sealed partial class GraphView : UserControl
             var selected = string.Equals(pair.Key, ViewModel.SelectedGraphId, StringComparison.OrdinalIgnoreCase);
             tag.Ellipse.StrokeThickness = selected ? 4 : 2;
             tag.Ellipse.Stroke = selected
-                ? new SolidColorBrush(AccentColor())
-                : ThemeBrush("ControlStrokeColorDefaultBrush", Color.FromArgb(255, 160, 160, 160));
+                ? new SolidColorBrush(Color.FromArgb(255, 0, 120, 212))
+                : new SolidColorBrush(Color.FromArgb(255, 160, 160, 160));
             if (!tag.AlwaysShowLabel)
             {
-                tag.Label.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+                tag.Label.IsVisible = selected;
             }
         }
     }
 
-    private void OnNodePressed(object sender, PointerRoutedEventArgs e)
+    private void OnNodePressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Border host || host.Tag is not NodeTag tag || ViewModel is null)
         {
             return;
         }
 
-        Focus(FocusState.Programmatic);
+        Focus();
         ViewModel.SelectGraphNode(tag.Id, tag.IsProject);
         HighlightSelection();
-        var point = e.GetCurrentPoint(GraphCanvas).Position;
+        var point = e.GetPosition(GraphCanvas);
         var left = Canvas.GetLeft(host);
         var top = Canvas.GetTop(host);
         _dragId = tag.Id;
         _dragOffset = new Point(point.X - left, point.Y - top);
         _pressPoint = point;
         _dragging = false;
-        host.CapturePointer(e.Pointer);
+        e.Pointer.Capture(host);
         e.Handled = true;
     }
 
-    private void OnNodeMoved(object sender, PointerRoutedEventArgs e)
+    private void OnNodeMoved(object? sender, PointerEventArgs e)
     {
         if (_dragId is null || sender is not Border host || ViewModel is null)
         {
@@ -213,7 +209,7 @@ public sealed partial class GraphView : UserControl
             return;
         }
 
-        var point = e.GetCurrentPoint(GraphCanvas).Position;
+        var point = e.GetPosition(GraphCanvas);
         var left = point.X - _dragOffset.X;
         var top = point.Y - _dragOffset.Y;
         Canvas.SetLeft(host, left);
@@ -224,6 +220,7 @@ public sealed partial class GraphView : UserControl
         {
             _dragging = true;
         }
+
         if (host.Tag is NodeTag tag)
         {
             var size = tag.IsProject ? LayoutService.ProjectDiameter : LayoutService.NoteDiameter;
@@ -231,21 +228,16 @@ public sealed partial class GraphView : UserControl
         }
     }
 
-    private void OnNodeReleased(object sender, PointerRoutedEventArgs e)
+    private void OnNodeReleased(object? sender, PointerReleasedEventArgs e)
     {
         FinishPointer(sender, openOnClick: true);
-        if (sender is Border host)
-        {
-            host.ReleasePointerCapture(e.Pointer);
-        }
+        e.Pointer.Capture(null);
     }
 
-    private void OnNodeCanceled(object sender, PointerRoutedEventArgs e)
-    {
+    private void OnNodeCaptureLost(object? sender, PointerCaptureLostEventArgs e) =>
         FinishPointer(sender, openOnClick: false);
-    }
 
-    private void FinishPointer(object sender, bool openOnClick)
+    private void FinishPointer(object? sender, bool openOnClick)
     {
         if (_dragId is null || ViewModel is null || sender is not Border host || host.Tag is not NodeTag tag)
         {
@@ -285,7 +277,7 @@ public sealed partial class GraphView : UserControl
         _dragging = false;
     }
 
-    private void OnNodeDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private void OnNodeDoubleTapped(object? sender, TappedEventArgs e)
     {
         if (sender is Border { Tag: NodeTag tag } && ViewModel is not null)
         {
@@ -294,49 +286,59 @@ public sealed partial class GraphView : UserControl
         }
     }
 
-    private void OnNodeEntered(object sender, PointerRoutedEventArgs e)
+    private void OnNodeEntered(object? sender, PointerEventArgs e)
     {
         if (sender is Border { Tag: NodeTag tag } && !tag.AlwaysShowLabel)
         {
-            tag.Label.Visibility = Visibility.Visible;
+            tag.Label.IsVisible = true;
         }
     }
 
-    private void OnNodeExited(object sender, PointerRoutedEventArgs e)
+    private void OnNodeExited(object? sender, PointerEventArgs e)
     {
         if (sender is Border { Tag: NodeTag tag } && !tag.AlwaysShowLabel)
         {
             var selected = ViewModel is not null &&
                            string.Equals(tag.Id, ViewModel.SelectedGraphId, StringComparison.OrdinalIgnoreCase);
-            tag.Label.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+            tag.Label.IsVisible = selected;
         }
     }
 
-    private void OnCanvasPressed(object sender, PointerRoutedEventArgs e)
-    {
-        Focus(FocusState.Programmatic);
-    }
+    private void OnCanvasPressed(object? sender, PointerPressedEventArgs e) => Focus();
 
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (ViewModel is null)
         {
             return;
         }
 
-        if (e.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down)
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
         {
             MoveSelection(e.Key);
             e.Handled = true;
         }
-        else if (e.Key == VirtualKey.Enter)
+        else if (e.Key == Key.Enter)
         {
             ViewModel.OpenSelectedGraphNode();
             e.Handled = true;
         }
     }
 
-    private void MoveSelection(VirtualKey key)
+    private void OnWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (!PlatformKeys.IsCommand(e.KeyModifiers))
+        {
+            return;
+        }
+
+        ChangeZoom(e.Delta.Y > 0 ? 0.1 : -0.1);
+        e.Handled = true;
+    }
+
+    private void ChangeZoom(double delta) => SetZoom(_zoom + delta);
+
+    private void MoveSelection(Key key)
     {
         if (ViewModel is null)
         {
@@ -362,8 +364,8 @@ public sealed partial class GraphView : UserControl
             current = nodes[0];
         }
 
-        var dirX = key == VirtualKey.Left ? -1 : key == VirtualKey.Right ? 1 : 0;
-        var dirY = key == VirtualKey.Up ? -1 : key == VirtualKey.Down ? 1 : 0;
+        var dirX = key == Key.Left ? -1 : key == Key.Right ? 1 : 0;
+        var dirY = key == Key.Up ? -1 : key == Key.Down ? 1 : 0;
         string? best = null;
         var bestScore = double.MaxValue;
         foreach (var node in nodes)
@@ -398,10 +400,6 @@ public sealed partial class GraphView : UserControl
         var chosen = nodes.First(n => n.Key == best);
         ViewModel.SelectGraphNode(chosen.Key, chosen.isProject);
         HighlightSelection();
-        if (_nodes.TryGetValue(chosen.Key, out var element))
-        {
-            element.StartBringIntoView();
-        }
     }
 
     private void UpdateEdges(string id, double x, double y)
@@ -416,49 +414,14 @@ public sealed partial class GraphView : UserControl
 
             if (parts[0] == id)
             {
-                line.X1 = x;
-                line.Y1 = y;
+                line.StartPoint = new Point(x, y);
             }
 
             if (parts[1] == id)
             {
-                line.X2 = x;
-                line.Y2 = y;
+                line.EndPoint = new Point(x, y);
             }
         }
-    }
-
-    private void OnViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
-    {
-        if (!_suppressZoomEvent)
-        {
-            ZoomChanged?.Invoke(GraphScroll.ZoomFactor);
-        }
-    }
-
-    private void OnGettingFocus(UIElement sender, GettingFocusEventArgs args)
-    {
-        HighlightSelection();
-    }
-
-    private static Brush ThemeBrush(string key, Color fallback)
-    {
-        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
-        {
-            return brush;
-        }
-
-        return new SolidColorBrush(fallback);
-    }
-
-    private static Color AccentColor()
-    {
-        if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var value) && value is Color color)
-        {
-            return color;
-        }
-
-        return Color.FromArgb(255, 0, 120, 212);
     }
 
     private sealed record NodeTag(string Id, bool IsProject, TextBlock Label, bool AlwaysShowLabel, Ellipse Ellipse);

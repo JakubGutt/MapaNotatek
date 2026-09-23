@@ -1,12 +1,11 @@
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Windows.System;
+using Avalonia.Controls;
+using Avalonia.Input;
 using MapaNotatek.Models;
 using MapaNotatek.ViewModels;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class NoteListView : UserControl
+public partial class NoteListView : UserControl
 {
     public NoteListView()
     {
@@ -25,27 +24,27 @@ public sealed partial class NoteListView : UserControl
         NotesList.ItemsSource = ViewModel.VisibleNotes;
     }
 
-    private void OnItemClick(object sender, ItemClickEventArgs e)
+    private void OnItemDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (e.ClickedItem is Note note && ViewModel is not null)
+        if (NotesList.SelectedItem is Note note && ViewModel is not null)
         {
             ViewModel.SelectNote(note, openEditor: true, focusGraph: true);
         }
     }
 
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (ViewModel is null)
         {
             return;
         }
 
-        if (e.Key == VirtualKey.Enter && NotesList.SelectedItem is Note note)
+        if (e.Key == Key.Enter && NotesList.SelectedItem is Note note)
         {
             ViewModel.SelectNote(note, openEditor: true, focusGraph: true);
             e.Handled = true;
         }
-        else if (e.Key == VirtualKey.Delete && NotesList.SelectedItem is Note toDelete)
+        else if ((e.Key is Key.Delete or Key.Back) && NotesList.SelectedItem is Note toDelete)
         {
             ViewModel.SelectNote(toDelete, openEditor: false, focusGraph: true);
             ViewModel.TrashSelectedNote();

@@ -1,9 +1,9 @@
-using Microsoft.UI.Xaml.Controls;
+using Avalonia.Controls;
 using MapaNotatek.Services;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class ShortcutsDialog : UserControl
+public partial class ShortcutsDialog : UserControl
 {
     public ShortcutsDialog()
     {

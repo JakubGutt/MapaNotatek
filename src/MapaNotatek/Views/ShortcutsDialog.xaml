@@ -1,6 +1,0 @@
-<UserControl
-    x:Class="MapaNotatek.Views.ShortcutsDialog"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ListView x:Name="ShortcutsList" Width="420" MaxHeight="480" />
-</UserControl>

@@ -1,34 +1,23 @@
-using System.Runtime.InteropServices;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
-using WinRT;
+﻿using Avalonia;
+using System;
 
 namespace MapaNotatek;
 
-public static class Program
+internal static class Program
 {
-    [DllImport("Microsoft.ui.xaml.dll")]
-    private static extern void XamlCheckProcessRequirements();
-
     [STAThread]
-    private static void Main(string[] args)
-    {
-        XamlCheckProcessRequirements();
-        ComWrappersSupport.InitializeComWrappers();
-        Application.Start((ApplicationInitializationCallbackParams p) =>
-        {
-            var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
-            SynchronizationContext.SetSynchronizationContext(context);
-            _ = new App();
-        });
-    }
+    public static void Main(string[] args) => BuildAvaloniaApp()
+        .StartWithClassicDesktopLifetime(args);
+
+    public static AppBuilder BuildAvaloniaApp()
+        => AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
 }
 
 internal static class Startup
 {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
-
     public static void Log(string message)
     {
         Console.WriteLine("MapaNotatek: " + message);
@@ -52,7 +41,6 @@ internal static class Startup
         {
             var path = Path.Combine(Path.GetTempPath(), "MapaNotatek-crash.log");
             File.WriteAllText(path, $"{DateTime.Now:O}\n{message}");
-            MessageBox(IntPtr.Zero, message + "\n\nZapisano: " + path, "MapaNotatek", 0x00000010);
         }
         catch
         {

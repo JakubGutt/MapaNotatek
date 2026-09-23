@@ -1,12 +1,14 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using MapaNotatek.Models;
 using MapaNotatek.Services;
 using MapaNotatek.ViewModels;
 
 namespace MapaNotatek.Views;
 
-public sealed partial class EditorPanel : UserControl
+public partial class EditorPanel : UserControl
 {
     private bool _suppress;
 
@@ -25,28 +27,24 @@ public sealed partial class EditorPanel : UserControl
         }
 
         _suppress = true;
-        EmptyPanel.Visibility = Visibility.Collapsed;
-        ProjectPanel.Visibility = Visibility.Collapsed;
-        NotePanel.Visibility = Visibility.Collapsed;
+        EmptyPanel.IsVisible = false;
+        ProjectPanel.IsVisible = false;
+        NotePanel.IsVisible = false;
 
         if (!ViewModel.IsEditorOpen)
         {
-            EmptyPanel.Visibility = Visibility.Visible;
+            EmptyPanel.IsVisible = true;
             _suppress = false;
             return;
         }
 
         if (ViewModel.SelectedProject is { } project)
         {
-            ProjectPanel.Visibility = Visibility.Visible;
+            ProjectPanel.IsVisible = true;
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
             FillChecklist(ProjectChecklistHost, project.Checklist, () => ViewModel.ScheduleSaveProject(project));
-            RelatedNotesList.Items.Clear();
-            foreach (var note in ViewModel.RelatedNotes)
-            {
-                RelatedNotesList.Items.Add(note.Title);
-            }
+            RelatedNotesList.ItemsSource = ViewModel.RelatedNotes.Select(n => n.Title).ToList();
 
             ProjectOpenTasksHost.Children.Clear();
             foreach (var task in ViewModel.ProjectNoteTasks)
@@ -56,7 +54,7 @@ public sealed partial class EditorPanel : UserControl
         }
         else if (ViewModel.SelectedNote is { } note)
         {
-            NotePanel.Visibility = Visibility.Visible;
+            NotePanel.IsVisible = true;
             NoteTitleBox.Text = note.Title;
             NoteBodyBox.Text = note.Body;
             NoteTagsBox.Text = string.Join(", ", note.Tags);
@@ -65,20 +63,20 @@ public sealed partial class EditorPanel : UserControl
         }
         else
         {
-            EmptyPanel.Visibility = Visibility.Visible;
+            EmptyPanel.IsVisible = true;
         }
 
         _suppress = false;
     }
 
-    public UIElement DefaultFocusTarget()
+    public Control DefaultFocusTarget()
     {
-        if (ProjectPanel.Visibility == Visibility.Visible)
+        if (ProjectPanel.IsVisible)
         {
             return ProjectNameBox;
         }
 
-        if (NotePanel.Visibility == Visibility.Visible)
+        if (NotePanel.IsVisible)
         {
             return NoteTitleBox;
         }
@@ -86,32 +84,32 @@ public sealed partial class EditorPanel : UserControl
         return this;
     }
 
-    private void OnProjectChanged(object sender, TextChangedEventArgs e)
+    private void OnProjectChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress || ViewModel?.SelectedProject is not { } project)
         {
             return;
         }
 
-        project.Name = ProjectNameBox.Text;
-        project.Description = ProjectDescriptionBox.Text;
+        project.Name = ProjectNameBox.Text ?? string.Empty;
+        project.Description = ProjectDescriptionBox.Text ?? string.Empty;
         ViewModel.ScheduleSaveProject(project);
     }
 
-    private void OnNoteChanged(object sender, TextChangedEventArgs e)
+    private void OnNoteChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress || ViewModel?.SelectedNote is not { } note)
         {
             return;
         }
 
-        note.Title = NoteTitleBox.Text;
-        note.Body = NoteBodyBox.Text;
+        note.Title = NoteTitleBox.Text ?? string.Empty;
+        note.Body = NoteBodyBox.Text ?? string.Empty;
         note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
         ViewModel.ScheduleSaveNote(note);
     }
 
-    private void OnAddProjectTask(object sender, RoutedEventArgs e)
+    private void OnAddProjectTask(object? sender, RoutedEventArgs e)
     {
         if (ViewModel?.SelectedProject is not { } project)
         {
@@ -123,7 +121,7 @@ public sealed partial class EditorPanel : UserControl
         Refresh();
     }
 
-    private void OnAddNoteTask(object sender, RoutedEventArgs e)
+    private void OnAddNoteTask(object? sender, RoutedEventArgs e)
     {
         if (ViewModel?.SelectedNote is not { } note)
         {
@@ -135,13 +133,13 @@ public sealed partial class EditorPanel : UserControl
         Refresh();
     }
 
-    private void OnArchiveProject(object sender, RoutedEventArgs e) => ViewModel?.ToggleArchiveSelectedProject();
+    private void OnArchiveProject(object? sender, RoutedEventArgs e) => ViewModel?.ToggleArchiveSelectedProject();
 
-    private void OnTrashNote(object sender, RoutedEventArgs e) => ViewModel?.TrashSelectedNote();
+    private void OnTrashNote(object? sender, RoutedEventArgs e) => ViewModel?.TrashSelectedNote();
 
-    private void OnRelatedNoteClick(object sender, ItemClickEventArgs e)
+    private void OnRelatedNoteDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (ViewModel is null || e.ClickedItem is not string title)
+        if (ViewModel is null || RelatedNotesList.SelectedItem is not string title)
         {
             return;
         }
@@ -162,14 +160,14 @@ public sealed partial class EditorPanel : UserControl
             var text = new TextBox { Text = item.Text, HorizontalAlignment = HorizontalAlignment.Stretch };
             var delete = new Button { Content = "Usuń" };
 
-            check.Click += (_, _) =>
+            check.IsCheckedChanged += (_, _) =>
             {
                 item.IsDone = check.IsChecked == true;
                 changed();
             };
             text.TextChanged += (_, _) =>
             {
-                item.Text = text.Text;
+                item.Text = text.Text ?? string.Empty;
                 changed();
             };
             delete.Click += (_, _) =>
@@ -179,10 +177,11 @@ public sealed partial class EditorPanel : UserControl
                 Refresh();
             };
 
-            var row = new Grid { ColumnSpacing = 6 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+                ColumnSpacing = 6
+            };
             Grid.SetColumn(text, 1);
             Grid.SetColumn(delete, 2);
             row.Children.Add(check);
@@ -192,13 +191,16 @@ public sealed partial class EditorPanel : UserControl
         }
     }
 
-    private UIElement CreateOpenTaskRow(OpenTask task)
+    private Control CreateOpenTaskRow(OpenTask task)
     {
         var check = new CheckBox { IsChecked = false, Content = $"{task.Text} ({task.SourceTitle})", MinWidth = 32 };
-        check.Click += (_, _) =>
+        check.IsCheckedChanged += (_, _) =>
         {
-            ViewModel?.ToggleTask(task);
-            Refresh();
+            if (check.IsChecked == true)
+            {
+                ViewModel?.ToggleTask(task);
+                Refresh();
+            }
         };
         return check;
     }

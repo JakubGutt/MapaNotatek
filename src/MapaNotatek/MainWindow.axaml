@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MapaNotatek.MainWindow"
+        Title="MapaNotatek"
+        Width="1440"
+        Height="900"
+        MinWidth="900"
+        MinHeight="600">
+    <!-- Input gestures are handled in code (Cmd on macOS, Ctrl on Windows). -->
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Plik">
+                <MenuItem Header="Nowa notatka" Click="OnNewNote" />
+                <MenuItem Header="Nowy projekt" Click="OnNewProject" />
+                <Separator />
+                <MenuItem Header="Zapisz" Click="OnSave" />
+                <MenuItem Header="Eksportuj kopię…" Click="OnExportBackup" />
+                <Separator />
+                <MenuItem Header="Ustawienia…" Click="OnSettings" />
+                <MenuItem Header="Zamknij panel" Click="OnCloseEditor" />
+            </MenuItem>
+            <MenuItem Header="_Edycja">
+                <MenuItem Header="Cofnij" Click="OnUndo" />
+                <MenuItem Header="Ponów" Click="OnRedo" />
+                <Separator />
+                <MenuItem Header="Szukaj" Click="OnFocusSearch" />
+                <MenuItem Header="Zmień nazwę" Click="OnRename" />
+                <MenuItem Header="Przenieś notatkę do kosza" Click="OnTrashNote" />
+            </MenuItem>
+            <MenuItem Header="_Widok">
+                <MenuItem Header="Graf" Click="OnGraphViewMenu" />
+                <MenuItem Header="Lista notatek" Click="OnNotesViewMenu" />
+                <MenuItem Header="Otwarte zadania" Click="OnTasksViewMenu" />
+                <Separator />
+                <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
+                <MenuItem Header="Pokaż zarchiwizowane" Click="OnToggleArchivedMenu" />
+                <Separator />
+                <MenuItem Header="Powiększ" Click="OnZoomIn" />
+                <MenuItem Header="Pomniejsz" Click="OnZoomOut" />
+                <MenuItem Header="Domyślne powiększenie" Click="OnZoomReset" />
+            </MenuItem>
+            <MenuItem Header="P_rojekt">
+                <MenuItem Header="Nowy projekt" Click="OnNewProject" />
+                <MenuItem Header="Archiwizuj / przywróć" Click="OnArchiveProject" />
+                <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
+            </MenuItem>
+            <MenuItem Header="Pomo_c">
+                <MenuItem Header="Lista poleceń" Click="OnCommandPalette" />
+                <MenuItem Header="Skróty klawiszowe" Click="OnShortcuts" />
+            </MenuItem>
+        </Menu>
+
+        <TextBlock x:Name="StatusText"
+                   DockPanel.Dock="Bottom"
+                   Margin="12,4"
+                   Opacity="0.7"
+                   Text="Ładowanie…" />
+
+        <Grid ColumnDefinitions="260,*" Margin="8,4">
+            <Border Grid.Column="0" Margin="0,0,8,0">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <StackPanel Grid.Row="0" Spacing="4">
+                        <TextBlock Text="Szukaj" FontWeight="SemiBold" />
+                        <TextBox x:Name="SearchBox"
+                                 PlaceholderText="Tytuł, treść, tag, projekt"
+                                 TextChanged="OnSearchChanged" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Margin="0,8" Spacing="6">
+                        <Button Content="Nowy projekt" HorizontalAlignment="Stretch" Click="OnNewProject" />
+                        <Button Content="Pokaż wszystkie projekty" HorizontalAlignment="Stretch" Click="OnShowAll" />
+                        <CheckBox x:Name="ArchivedCheck" Content="Pokaż zarchiwizowane" IsCheckedChanged="OnToggleArchived" />
+                    </StackPanel>
+                    <ListBox x:Name="ProjectsList"
+                             Grid.Row="2"
+                             DoubleTapped="OnProjectDoubleTapped"
+                             KeyDown="OnProjectsKeyDown"
+                             SelectionChanged="OnProjectSelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{ReflectionBinding Name}" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Grid.Row="3"
+                            Margin="0,8,0,0"
+                            Content="Nowa notatka"
+                            HorizontalAlignment="Stretch"
+                            Click="OnNewNote" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                <Grid RowDefinitions="Auto,*">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+                        <RadioButton x:Name="GraphRadio" Content="Graf" GroupName="CenterView" IsChecked="True" IsCheckedChanged="OnGraphView" />
+                        <RadioButton x:Name="NotesRadio" Content="Notatki" GroupName="CenterView" IsCheckedChanged="OnNotesView" />
+                        <RadioButton x:Name="TasksRadio" Content="Zadania" GroupName="CenterView" IsCheckedChanged="OnTasksView" />
+                    </StackPanel>
+                    <Panel Grid.Row="1">
+                        <ContentControl x:Name="GraphHost" />
+                        <ContentControl x:Name="NotesHost" IsVisible="False" />
+                        <ContentControl x:Name="TasksHost" IsVisible="False" />
+                    </Panel>
+                </Grid>
+                <Border x:Name="RightPanel"
+                        Grid.Column="1"
+                        Width="360"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                        BorderThickness="1,0,0,0"
+                        IsVisible="False">
+                    <ContentControl x:Name="EditorHost" />
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
