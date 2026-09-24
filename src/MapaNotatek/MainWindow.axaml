@@ -4,28 +4,59 @@
         Title="MapaNotatek"
         Width="1440"
         Height="900"
-        MinWidth="900"
-        MinHeight="600">
-    <!-- Input gestures are handled in code (Cmd on macOS, Ctrl on Windows). -->
+        MinWidth="960"
+        MinHeight="640">
+    <Window.Styles>
+        <Style Selector="Button.SidebarAction">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="RadioButton.WorkspaceTab">
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.SectionLabel">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.62" />
+        </Style>
+    </Window.Styles>
+
     <DockPanel>
-        <Menu DockPanel.Dock="Top">
+        <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem Header="_Plik">
                 <MenuItem Header="Nowa notatka" Click="OnNewNote" />
+                <MenuItem Header="Nowa z szablonu">
+                    <MenuItem Header="Spotkanie" Tag="meeting" Click="OnNewFromTemplate" />
+                    <MenuItem Header="Decyzja" Tag="decision" Click="OnNewFromTemplate" />
+                    <MenuItem Header="Plan projektu" Tag="project-brief" Click="OnNewFromTemplate" />
+                    <MenuItem Header="Procedura" Tag="procedure" Click="OnNewFromTemplate" />
+                    <MenuItem Header="Notatka dzienna" Tag="daily" Click="OnNewFromTemplate" />
+                </MenuItem>
                 <MenuItem Header="Nowy projekt" Click="OnNewProject" />
+                <MenuItem Header="Nowy folder" Click="OnNewFolder" />
                 <Separator />
                 <MenuItem Header="Zapisz" Click="OnSave" />
+                <MenuItem Header="Zachowaj konflikt jako osobną kopię…" Click="OnPreserveConflictCopy" />
                 <MenuItem Header="Eksportuj kopię…" Click="OnExportBackup" />
+                <MenuItem Header="Kosz…" Click="OnShowTrash" />
                 <Separator />
                 <MenuItem Header="Ustawienia…" Click="OnSettings" />
-                <MenuItem Header="Zamknij panel" Click="OnCloseEditor" />
+                <MenuItem Header="Zamknij dokument" Click="OnCloseEditor" />
             </MenuItem>
             <MenuItem Header="_Edycja">
                 <MenuItem Header="Cofnij" Click="OnUndo" />
                 <MenuItem Header="Ponów" Click="OnRedo" />
                 <Separator />
-                <MenuItem Header="Szukaj" Click="OnFocusSearch" />
+                <MenuItem Header="Znajdź w dokumencie" Click="OnFindInDocument" />
+                <MenuItem Header="Szukaj w całej bibliotece" Click="OnFocusSearch" />
                 <MenuItem Header="Zmień nazwę" Click="OnRename" />
+                <MenuItem Header="Przypnij / odepnij" Click="OnTogglePin" />
                 <MenuItem Header="Przenieś notatkę do kosza" Click="OnTrashNote" />
+                <MenuItem Header="Przenieś folder / projekt do kosza…" Click="OnDeleteProject" />
             </MenuItem>
             <MenuItem Header="_Widok">
                 <MenuItem Header="Graf" Click="OnGraphViewMenu" />
@@ -33,15 +64,15 @@
                 <MenuItem Header="Otwarte zadania" Click="OnTasksViewMenu" />
                 <Separator />
                 <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
-                <MenuItem Header="Pokaż zarchiwizowane" Click="OnToggleArchivedMenu" />
+                <MenuItem Header="Wyśrodkuj zaznaczenie" Click="OnCenterSelection" />
                 <Separator />
-                <MenuItem Header="Powiększ" Click="OnZoomIn" />
-                <MenuItem Header="Pomniejsz" Click="OnZoomOut" />
-                <MenuItem Header="Domyślne powiększenie" Click="OnZoomReset" />
+                <MenuItem Header="Powiększ graf" Click="OnZoomIn" />
+                <MenuItem Header="Pomniejsz graf" Click="OnZoomOut" />
+                <MenuItem Header="Domyślne powiększenie grafu" Click="OnZoomReset" />
             </MenuItem>
             <MenuItem Header="P_rojekt">
                 <MenuItem Header="Nowy projekt" Click="OnNewProject" />
-                <MenuItem Header="Archiwizuj / przywróć" Click="OnArchiveProject" />
+                <MenuItem Header="Nowy folder" Click="OnNewFolder" />
                 <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
             </MenuItem>
             <MenuItem Header="Pomo_c">
@@ -50,66 +81,209 @@
             </MenuItem>
         </Menu>
 
-        <TextBlock x:Name="StatusText"
-                   DockPanel.Dock="Bottom"
-                   Margin="12,4"
-                   Opacity="0.7"
-                   Text="Ładowanie…" />
+        <Border x:Name="StatusBar"
+                DockPanel.Dock="Bottom"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                Padding="14,5">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock x:Name="StatusText"
+                           Grid.Column="0"
+                           Opacity="0.72"
+                           FontSize="12"
+                           Text="Ładowanie…"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           Text="Offline • dane lokalne"
+                           Opacity="0.5"
+                           FontSize="11" />
+            </Grid>
+        </Border>
 
-        <Grid ColumnDefinitions="260,*" Margin="8,4">
-            <Border Grid.Column="0" Margin="0,0,8,0">
-                <Grid RowDefinitions="Auto,Auto,*,Auto">
-                    <StackPanel Grid.Row="0" Spacing="4">
-                        <TextBlock Text="Szukaj" FontWeight="SemiBold" />
-                        <TextBox x:Name="SearchBox"
-                                 PlaceholderText="Tytuł, treść, tag, projekt"
-                                 TextChanged="OnSearchChanged" />
+        <Grid ColumnDefinitions="Auto,*">
+            <Border x:Name="SidebarPanel"
+                    Grid.Column="0"
+                    Width="272"
+                    Padding="14,12"
+                    BorderThickness="0,0,1,0"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    Background="{DynamicResource SurfaceMutedBrush}">
+                <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="MapaNotatek" FontSize="20" FontWeight="Bold" />
+                            <TextBlock Text="Twoja przestrzeń wiedzy" FontSize="11" Opacity="0.58" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Content="+"
+                                FontSize="20"
+                                ToolTip.Tip="Nowa notatka"
+                                Padding="10,3"
+                                CornerRadius="8"
+                                Click="OnNewNote" />
+                    </Grid>
+
+                    <TextBox x:Name="SearchBox"
+                             Grid.Row="1"
+                             PlaceholderText="Szukaj… np. tag:projekt"
+                             ToolTip.Tip="title:, body:, tag:, project:, type:, has:task; użyj - aby wykluczyć"
+                             Margin="0,0,0,12"
+                             TextChanged="OnSearchChanged" />
+
+                    <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,12">
+                        <Button Classes="SidebarAction" Content="Nowa notatka" Click="OnNewNote" />
+                        <Button Classes="SidebarAction" Content="Notatka z szablonu…" Click="OnShowTemplateMenu" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                            <Button Grid.Column="0" Content="Projekt" HorizontalAlignment="Stretch" Click="OnNewProject" />
+                            <Button Grid.Column="1" Content="Folder" HorizontalAlignment="Stretch" Click="OnNewFolder" />
+                        </Grid>
                     </StackPanel>
-                    <StackPanel Grid.Row="1" Margin="0,8" Spacing="6">
-                        <Button Content="Nowy projekt" HorizontalAlignment="Stretch" Click="OnNewProject" />
-                        <Button Content="Pokaż wszystkie projekty" HorizontalAlignment="Stretch" Click="OnShowAll" />
-                        <CheckBox x:Name="ArchivedCheck" Content="Pokaż zarchiwizowane" IsCheckedChanged="OnToggleArchived" />
+
+                    <Grid Grid.Row="3" RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="2,0,2,5">
+                            <TextBlock Classes="SectionLabel" Text="PROJEKTY I FOLDERY" />
+                            <Button Grid.Column="1"
+                                    Content="Wszystkie"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Click="OnShowAll" />
+                        </Grid>
+                        <TreeView x:Name="ProjectsTree"
+                                  Grid.Row="1"
+                                  DoubleTapped="OnProjectTreeDoubleTapped"
+                                  SelectionChanged="OnProjectTreeSelectionChanged">
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
+                                    <TextBlock Text="{ReflectionBinding DisplayTitle}" TextTrimming="CharacterEllipsis" />
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                    </Grid>
+
+                    <Grid Grid.Row="4" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,12,0,0">
+                        <TextBlock Grid.Row="0" Classes="SectionLabel" Text="PRZYPIĘTE" Margin="2,0,0,4" />
+                        <ListBox x:Name="PinnedList"
+                                 Grid.Row="1"
+                                 MaxHeight="94"
+                                 SelectionChanged="OnPinnedSelectionChanged"
+                                 DoubleTapped="OnPinnedDoubleTapped">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{ReflectionBinding Title}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Grid.Row="2" Classes="SectionLabel" Text="OSTATNIE" Margin="2,10,0,4" />
+                        <ListBox x:Name="RecentList"
+                                 Grid.Row="3"
+                                 MaxHeight="94"
+                                 SelectionChanged="OnRecentSelectionChanged"
+                                 DoubleTapped="OnRecentDoubleTapped">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{ReflectionBinding Title}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="6" Margin="0,12,0,0">
+                        <Button Content="Kosz" Click="OnShowTrash" />
+                        <Button Content="Ustawienia" Click="OnSettings" />
                     </StackPanel>
-                    <ListBox x:Name="ProjectsList"
-                             Grid.Row="2"
-                             DoubleTapped="OnProjectDoubleTapped"
-                             KeyDown="OnProjectsKeyDown"
-                             SelectionChanged="OnProjectSelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{ReflectionBinding Name}" />
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <Button Grid.Row="3"
-                            Margin="0,8,0,0"
-                            Content="Nowa notatka"
-                            HorizontalAlignment="Stretch"
-                            Click="OnNewNote" />
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                <Grid RowDefinitions="Auto,*">
-                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
-                        <RadioButton x:Name="GraphRadio" Content="Graf" GroupName="CenterView" IsChecked="True" IsCheckedChanged="OnGraphView" />
-                        <RadioButton x:Name="NotesRadio" Content="Notatki" GroupName="CenterView" IsCheckedChanged="OnNotesView" />
-                        <RadioButton x:Name="TasksRadio" Content="Zadania" GroupName="CenterView" IsCheckedChanged="OnTasksView" />
-                    </StackPanel>
-                    <Panel Grid.Row="1">
-                        <ContentControl x:Name="GraphHost" />
-                        <ContentControl x:Name="NotesHost" IsVisible="False" />
-                        <ContentControl x:Name="TasksHost" IsVisible="False" />
-                    </Panel>
-                </Grid>
-                <Border x:Name="RightPanel"
-                        Grid.Column="1"
-                        Width="360"
-                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-                        BorderThickness="1,0,0,0"
-                        IsVisible="False">
-                    <ContentControl x:Name="EditorHost" />
+            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                <Border x:Name="WorkspaceNav"
+                        Grid.Row="0"
+                        BorderThickness="0,0,0,1"
+                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                        Padding="14,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <RadioButton x:Name="EditorRadio"
+                                         Classes="WorkspaceTab"
+                                         Content="Edytor"
+                                         GroupName="WorkspaceView"
+                                         IsCheckedChanged="OnEditorView" />
+                            <RadioButton x:Name="NotesRadio"
+                                         Classes="WorkspaceTab"
+                                         Content="Notatki"
+                                         GroupName="WorkspaceView"
+                                         IsCheckedChanged="OnNotesView" />
+                            <RadioButton x:Name="TasksRadio"
+                                         Classes="WorkspaceTab"
+                                         Content="Zadania"
+                                         GroupName="WorkspaceView"
+                                         IsCheckedChanged="OnTasksView" />
+                            <RadioButton x:Name="GraphRadio"
+                                         Classes="WorkspaceTab"
+                                         Content="Graf"
+                                         GroupName="WorkspaceView"
+                                         IsCheckedChanged="OnGraphView" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="Polecenia"
+                                    ToolTip.Tip="Paleta poleceń"
+                                    Click="OnCommandPalette" />
+                            <Button Content="+ Nowa notatka"
+                                    Click="OnNewNote" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
+
+                <Panel Grid.Row="1">
+                    <ContentControl x:Name="GraphHost" IsVisible="False" />
+                    <ContentControl x:Name="NotesHost" IsVisible="False" />
+                    <ContentControl x:Name="TasksHost" IsVisible="False" />
+
+                    <Border x:Name="RightPanel"
+                            IsVisible="False"
+                            Background="{DynamicResource WorkspaceBackgroundBrush}">
+                        <ContentControl x:Name="EditorHost" />
+                    </Border>
+
+                    <Border x:Name="EmptyStateHost"
+                            IsVisible="False"
+                            Background="{DynamicResource WorkspaceBackgroundBrush}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="12"
+                                    MaxWidth="420">
+                            <Border Width="64"
+                                    Height="64"
+                                    CornerRadius="16"
+                                    Background="{DynamicResource AccentBrush}"
+                                    HorizontalAlignment="Center">
+                                <TextBlock Text="N"
+                                           FontSize="28"
+                                           FontWeight="Bold"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Zacznij od pierwszej notatki"
+                                       FontSize="26"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="Notatki są głównym miejscem pracy. Projekty i graf pomagają je później porządkować i łączyć."
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Opacity="0.72" />
+                            <Button Content="Utwórz notatkę"
+                                    HorizontalAlignment="Center"
+                                    MinWidth="180"
+                                    Click="OnNewNote" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                                <Button Content="Nowy projekt" Click="OnNewProject" />
+                                <Button Content="Nowy folder" Click="OnNewFolder" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Panel>
             </Grid>
         </Grid>
     </DockPanel>

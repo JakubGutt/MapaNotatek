@@ -8,6 +8,103 @@ public static class LayoutService
     public const double CanvasHeight = 4000;
     public const double ProjectDiameter = 72;
     public const double NoteDiameter = 36;
+    private const double MinSeparation = 110;
+
+    public static void PlaceAt(
+        Dictionary<string, GraphPosition> positions,
+        string id,
+        double x,
+        double y)
+    {
+        positions[id] = new GraphPosition
+        {
+            Id = id,
+            X = Math.Clamp(x, 40, CanvasWidth - 40),
+            Y = Math.Clamp(y, 40, CanvasHeight - 40)
+        };
+    }
+
+    /// <summary>
+    /// Places a node around an anchor, fanning siblings so they don't stack.
+    /// </summary>
+    public static void PlaceNear(
+        Dictionary<string, GraphPosition> positions,
+        string id,
+        double anchorX,
+        double anchorY,
+        int siblingIndex = 0)
+    {
+        for (var attempt = 0; attempt < 24; attempt++)
+        {
+            var slot = siblingIndex + attempt;
+            var ring = slot / 8;
+            var onRing = slot % 8;
+            var angle = (2 * Math.PI * onRing / 8) + 0.35 + (ring * 0.15);
+            var radius = 130 + (ring * 70);
+            var x = anchorX + (radius * Math.Cos(angle));
+            var y = anchorY + (radius * Math.Sin(angle));
+            if (!IsTooClose(positions, id, x, y))
+            {
+                PlaceAt(positions, id, x, y);
+                return;
+            }
+        }
+
+        PlaceAt(positions, id, anchorX + 160, anchorY + 40);
+    }
+
+    /// <summary>
+    /// Places at a preferred point, nudging away if something already sits there.
+    /// </summary>
+    public static void PlaceAtAvoidingOverlap(
+        Dictionary<string, GraphPosition> positions,
+        string id,
+        double preferredX,
+        double preferredY)
+    {
+        if (!IsTooClose(positions, id, preferredX, preferredY))
+        {
+            PlaceAt(positions, id, preferredX, preferredY);
+            return;
+        }
+
+        PlaceNear(positions, id, preferredX, preferredY, siblingIndex: 0);
+    }
+
+    public static int CountSiblings(
+        IEnumerable<Project> projects,
+        string? parentId,
+        string? excludeId = null)
+    {
+        var key = parentId ?? string.Empty;
+        return projects.Count(p =>
+            string.Equals(p.ParentId ?? string.Empty, key, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(p.Id, excludeId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsTooClose(
+        Dictionary<string, GraphPosition> positions,
+        string excludeId,
+        double x,
+        double y)
+    {
+        foreach (var pair in positions)
+        {
+            if (string.Equals(pair.Key, excludeId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var dx = pair.Value.X - x;
+            var dy = pair.Value.Y - y;
+            if ((dx * dx) + (dy * dy) < MinSeparation * MinSeparation)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public static void ApplyMissingPositions(
         IReadOnlyList<Project> projects,
@@ -16,24 +113,39 @@ public static class LayoutService
     {
         var centerX = CanvasWidth / 2;
         var centerY = CanvasHeight / 2;
-        var count = Math.Max(projects.Count, 1);
+        var roots = projects.Where(p => string.IsNullOrWhiteSpace(p.ParentId)).ToList();
+        var count = Math.Max(roots.Count, 1);
         var ring = 260 + count * 18;
+        var rootIndex = 0;
 
-        for (var i = 0; i < projects.Count; i++)
+        // Parents first so children can attach to them.
+        var ordered = projects
+            .OrderBy(p => Depth(projects, p))
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        foreach (var project in ordered)
         {
-            var project = projects[i];
             if (positions.ContainsKey(project.Id))
             {
                 continue;
             }
 
-            var angle = (2 * Math.PI * i / count) - (Math.PI / 2);
-            positions[project.Id] = new GraphPosition
+            if (!string.IsNullOrWhiteSpace(project.ParentId))
             {
-                Id = project.Id,
-                X = centerX + (ring * Math.Cos(angle)),
-                Y = centerY + (ring * Math.Sin(angle))
-            };
+                var parentPos = Get(positions, project.ParentId);
+                var siblingIndex = CountSiblings(projects, project.ParentId, project.Id);
+                PlaceNear(positions, project.Id, parentPos.X, parentPos.Y, siblingIndex);
+                continue;
+            }
+
+            var angleRoot = (2 * Math.PI * rootIndex / count) - (Math.PI / 2);
+            PlaceAtAvoidingOverlap(
+                positions,
+                project.Id,
+                centerX + (ring * Math.Cos(angleRoot)),
+                centerY + (ring * Math.Sin(angleRoot)));
+            rootIndex++;
         }
 
         var notesAround = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -49,12 +161,11 @@ public static class LayoutService
             var linked = projects.Where(p => NoteLinksTo(note, p)).ToList();
             if (linked.Count == 0)
             {
-                positions[note.Id] = new GraphPosition
-                {
-                    Id = note.Id,
-                    X = 180 + ((unassignedIndex % 4) * 90),
-                    Y = 180 + ((unassignedIndex / 4) * 90)
-                };
+                PlaceAtAvoidingOverlap(
+                    positions,
+                    note.Id,
+                    centerX - 200 + ((unassignedIndex % 4) * 100),
+                    centerY - 200 + ((unassignedIndex / 4) * 100));
                 unassignedIndex++;
                 continue;
             }
@@ -63,7 +174,7 @@ public static class LayoutService
             {
                 var xs = linked.Select(p => Get(positions, p.Id).X).Average();
                 var ys = linked.Select(p => Get(positions, p.Id).Y).Average();
-                positions[note.Id] = new GraphPosition { Id = note.Id, X = xs, Y = ys };
+                PlaceAtAvoidingOverlap(positions, note.Id, xs, ys);
                 continue;
             }
 
@@ -71,14 +182,39 @@ public static class LayoutService
             var hostPos = Get(positions, host.Id);
             notesAround.TryGetValue(host.Id, out var aroundIndex);
             notesAround[host.Id] = aroundIndex + 1;
-            var aroundAngle = (2 * Math.PI * aroundIndex / 8) + 0.4;
-            positions[note.Id] = new GraphPosition
-            {
-                Id = note.Id,
-                X = hostPos.X + (110 * Math.Cos(aroundAngle)),
-                Y = hostPos.Y + (110 * Math.Sin(aroundAngle))
-            };
+            PlaceNear(positions, note.Id, hostPos.X, hostPos.Y, aroundIndex);
         }
+    }
+
+    private static int Depth(IReadOnlyList<Project> projects, Project project)
+    {
+        var depth = 0;
+        var current = project;
+        var guard = 0;
+        while (!string.IsNullOrWhiteSpace(current.ParentId) && guard++ < 64)
+        {
+            depth++;
+            current = projects.FirstOrDefault(p => p.Id == current.ParentId) ?? current;
+            if (ReferenceEquals(current, project) || string.IsNullOrWhiteSpace(current.ParentId))
+            {
+                break;
+            }
+
+            if (projects.All(p => p.Id != current.ParentId) && depth > 0)
+            {
+                break;
+            }
+
+            var parent = projects.FirstOrDefault(p => p.Id == current.ParentId);
+            if (parent is null)
+            {
+                break;
+            }
+
+            current = parent;
+        }
+
+        return depth;
     }
 
     public static bool NoteLinksTo(Note note, Project project) =>

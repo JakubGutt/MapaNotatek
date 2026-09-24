@@ -1,14 +1,146 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MapaNotatek.Views.NoteListView"
-             Focusable="True">
-    <ListBox x:Name="NotesList"
-             DoubleTapped="OnItemDoubleTapped"
-             KeyDown="OnKeyDown">
-        <ListBox.ItemTemplate>
-            <DataTemplate>
-                <TextBlock Text="{ReflectionBinding Title}" />
-            </DataTemplate>
-        </ListBox.ItemTemplate>
-    </ListBox>
+             Focusable="True"
+             AutomationProperties.Name="Biblioteka notatek">
+    <Grid RowDefinitions="Auto,*"
+          Background="{DynamicResource WorkspaceBackgroundBrush}">
+        <Border Grid.Row="0"
+                Padding="24,20,24,16"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Biblioteka notatek" Classes="heading" />
+                    <TextBlock Text="Przeglądaj swoją bazę wiedzy. Naciśnij Enter lub kliknij dwukrotnie, aby otworzyć notatkę."
+                               Classes="subtitle"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+                <Border Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource SurfaceMutedBrush}"
+                        CornerRadius="{DynamicResource CornerRadiusSmall}"
+                        Padding="10,5">
+                    <TextBlock x:Name="NotesCountText"
+                               Classes="metadata"
+                               AutomationProperties.LiveSetting="Polite" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <ListBox x:Name="NotesList"
+                     Classes="library-list"
+                     Margin="24,16,24,24"
+                     DoubleTapped="OnItemDoubleTapped"
+                     SelectionChanged="OnSelectionChanged"
+                     KeyDown="OnKeyDown"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AutomationProperties.Name="Lista notatek"
+                     AutomationProperties.HelpText="Użyj strzałek, aby wybrać notatkę. Naciśnij Enter, aby ją otworzyć.">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,10" />
+                        <Setter Property="MinHeight" Value="44" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Background" Value="Transparent" />
+                    </Style>
+                    <Style Selector="ListBoxItem Border.note-card">
+                        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+                        <Setter Property="BorderThickness" Value="1" />
+                    </Style>
+                    <Style Selector="ListBoxItem:pointerover Border.note-card">
+                        <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}" />
+                    </Style>
+                    <Style Selector="ListBoxItem:selected Border.note-card">
+                        <Setter Property="Background" Value="{DynamicResource SurfaceSelectedBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                    </Style>
+                    <Style Selector="ListBoxItem:focus-visible Border.note-card">
+                        <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+                        <Setter Property="BorderThickness" Value="2" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Classes="note-card"
+                                CornerRadius="{DynamicResource CornerRadiusMedium}"
+                                Padding="18,15"
+                                AutomationProperties.Name="{ReflectionBinding Title}"
+                                AutomationProperties.HelpText="Naciśnij Enter, aby otworzyć notatkę.">
+                            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="9">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                    <TextBlock Text="{ReflectionBinding Title}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{ReflectionBinding Modified, StringFormat='Zmieniono {0:dd.MM.yyyy, HH:mm}'}"
+                                               Classes="metadata"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+
+                                <TextBlock Grid.Row="1"
+                                           Text="{ReflectionBinding Body}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="WordEllipsis"
+                                           MaxLines="2"
+                                           LineHeight="21" />
+
+                                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <ItemsControl ItemsSource="{ReflectionBinding Tags}"
+                                                  AutomationProperties.Name="Tagi notatki">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="tag-chip">
+                                                    <TextBlock Text="{ReflectionBinding .}" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal"
+                                                Spacing="4"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{ReflectionBinding Checklist.Count}"
+                                                   Classes="metadata"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Text="zadań" Classes="metadata" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel x:Name="EmptyState"
+                        IsVisible="False"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="360"
+                        Spacing="8"
+                        AutomationProperties.Name="Brak notatek. Utwórz pierwszą notatkę, aby rozpocząć.">
+                <TextBlock Text="Brak notatek"
+                           HorizontalAlignment="Center"
+                           FontSize="17"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="Utwórz pierwszą notatkę, aby rozpocząć budowanie swojej bazy wiedzy."
+                           Classes="subtitle"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+    </Grid>
 </UserControl>

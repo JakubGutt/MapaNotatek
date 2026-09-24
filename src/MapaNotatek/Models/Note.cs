@@ -10,4 +10,5 @@ public sealed class Note
     public DateTimeOffset Created { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset Modified { get; set; } = DateTimeOffset.Now;
     public string FilePath { get; set; } = string.Empty;
+    internal string PersistedContentHash { get; set; } = string.Empty;
 }

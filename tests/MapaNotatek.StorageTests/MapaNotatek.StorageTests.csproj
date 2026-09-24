@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/MapaNotatek/Models/AppState.cs" Link="Source/Models/AppState.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/ChecklistItem.cs" Link="Source/Models/ChecklistItem.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/DocumentBlock.cs" Link="Source/Models/DocumentBlock.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/GraphPosition.cs" Link="Source/Models/GraphPosition.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/Note.cs" Link="Source/Models/Note.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/Project.cs" Link="Source/Models/Project.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/AppStateStore.cs" Link="Source/Services/AppStateStore.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/AttachmentStore.cs" Link="Source/Services/AttachmentStore.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/BackupService.cs" Link="Source/Services/BackupService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/FrontMatter.cs" Link="Source/Services/FrontMatter.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/LibraryFolderService.cs" Link="Source/Services/LibraryFolderService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/MarkdownStore.cs" Link="Source/Services/MarkdownStore.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/NoteTemplateCatalog.cs" Link="Source/Services/NoteTemplateCatalog.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/RevisionStore.cs" Link="Source/Services/RevisionStore.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/SearchService.cs" Link="Source/Services/SearchService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/SlugHelper.cs" Link="Source/Services/SlugHelper.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/VisualDocumentService.cs" Link="Source/Services/VisualDocumentService.cs" />
+  </ItemGroup>
+</Project>

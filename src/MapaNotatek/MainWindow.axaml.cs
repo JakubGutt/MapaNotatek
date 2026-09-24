@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -23,13 +24,115 @@ public partial class MainWindow : Window
     private double _lastZoom = 1;
     private bool _zoomSaveReady;
     private bool _workspaceLoaded;
+    private bool _editorPageActive;
+    private bool _allowClose;
+    private bool _saveFailureDialogOpen;
 
     public MainWindow()
     {
         InitializeComponent();
         Opened += (_, _) => LoadWorkspace();
-        Closing += (_, _) => _vm?.FlushPendingSaves();
+        Closing += OnWindowClosing;
         AddHandler(KeyDownEvent, OnRootKeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+    }
+
+    private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_allowClose || _vm is null || _vm.FlushPendingSaves())
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (_saveFailureDialogOpen)
+        {
+            return;
+        }
+
+        _saveFailureDialogOpen = true;
+        try
+        {
+            var retry = new Button { Content = "Spróbuj ponownie", IsDefault = true, MinWidth = 130 };
+            var cancel = new Button { Content = "Wróć do aplikacji", IsCancel = true, MinWidth = 130 };
+            var discard = new Button { Content = "Zamknij bez zapisu", MinWidth = 150 };
+            var preserve = new Button
+            {
+                Content = "Zachowaj jako osobną kopię",
+                MinWidth = 190,
+                IsVisible = _vm.HasSaveConflict
+            };
+            var decision = "cancel";
+            var dialog = new Window
+            {
+                Title = "Nie wszystkie zmiany zostały zapisane",
+                Width = 560,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Content = new StackPanel
+                {
+                    Margin = new Thickness(20),
+                    Spacing = 16,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = _vm.HasSaveConflict
+                                ? "Plik został zmieniony także poza aplikacją. MapaNotatek nie nadpisała żadnej wersji. Możesz zachować swoją wersję jako osobną notatkę lub projekt."
+                                : "Aplikacja nie może teraz bezpiecznie zapisać części zmian. Najczęstsze przyczyny to brak miejsca albo uprawnień do folderu danych.",
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new TextBlock
+                        {
+                            Text = "Zalecane: wróć, napraw problem i użyj Plik → Zapisz. Zamknięcie bez zapisu może utracić ostatnie zmiany.",
+                            TextWrapping = TextWrapping.Wrap,
+                            Opacity = 0.72
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { discard, preserve, cancel, retry }
+                        }
+                    }
+                }
+            };
+            retry.Click += (_, _) => { decision = "retry"; dialog.Close(); };
+            discard.Click += (_, _) => { decision = "discard"; dialog.Close(); };
+            preserve.Click += (_, _) => { decision = "preserve"; dialog.Close(); };
+            cancel.Click += (_, _) => dialog.Close();
+            await dialog.ShowDialog(this);
+
+            if (decision == "retry" && _vm.FlushPendingSaves())
+            {
+                _allowClose = true;
+                Close();
+            }
+            else if (decision == "discard")
+            {
+                _allowClose = true;
+                Close();
+            }
+            else if (decision == "preserve")
+            {
+                try
+                {
+                    if (_vm.PreservePendingChangesAsCopies() > 0)
+                    {
+                        _allowClose = true;
+                        Close();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await ShowMessageAsync("Nie udało się zachować kopii", ex.Message);
+                }
+            }
+        }
+        finally
+        {
+            _saveFailureDialogOpen = false;
+        }
     }
 
     private void LoadWorkspace()
@@ -57,21 +160,48 @@ public partial class MainWindow : Window
             _notesControl.ViewModel = _vm;
             _tasksControl.ViewModel = _vm;
             _editorControl.ViewModel = _vm;
-            ProjectsList.ItemsSource = _vm.VisibleProjects;
+            ProjectsTree.ItemsSource = _vm.ProjectTree;
+            PinnedList.ItemsSource = _vm.PinnedItems;
+            RecentList.ItemsSource = _vm.RecentItems;
+            AttachTreeContextMenu();
+            AttachTreeDragDrop();
             _notesControl.Bind();
+            _notesControl.NoteSelectedOnGraph += note =>
+            {
+                _graphControl.Refresh();
+                if (GraphHost.IsVisible)
+                {
+                    _graphControl.CenterOnNode(note.Id);
+                }
+            };
             _tasksControl.Bind();
             _graphControl.Refresh();
+            _graphControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
+            _editorControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
+            _editorControl.FocusModeChanged += ApplyFocusMode;
             _editorControl.Refresh();
-            ArchivedCheck.IsChecked = _vm.ShowArchived;
             StatusText.Text = _vm.DataFolder;
+            UpdateEmptyState();
 
             _vm.GraphChanged += OnGraphChanged;
             _vm.EditorChanged += OnEditorChanged;
+            _vm.FocusNodeRequested += id =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _graphControl.Refresh();
+                    if (GraphHost.IsVisible)
+                    {
+                        _graphControl.CenterOnNode(id);
+                    }
+                }, DispatcherPriority.Background);
+            };
             _vm.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(MainViewModel.StatusText))
                 {
                     StatusText.Text = _vm.StatusText;
+                    _editorControl.UpdateSaveStatus(_vm.StatusText);
                 }
             };
 
@@ -92,8 +222,29 @@ public partial class MainWindow : Window
             _lastZoom = _vm.State.Zoom <= 0 ? 1 : _vm.State.Zoom;
             _graphControl.SetZoom(_lastZoom);
             _zoomSaveReady = true;
-            UpdateEditorVisibility();
-            _graphControl.Focus();
+            var startupNote = _vm.State.RecentIds
+                .Select(id => _vm.Notes.FirstOrDefault(note => string.Equals(note.Id, id, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault(note => note is not null)
+                ?? _vm.Notes.FirstOrDefault();
+            if (startupNote is not null)
+            {
+                _vm.SelectNote(startupNote, openEditor: true, focusGraph: true);
+                ShowEditorPage();
+                _editorControl.Refresh();
+                UpdateEditorVisibility();
+            }
+            else
+            {
+                ShowCenter(CenterViewKind.Notes);
+            }
+
+            if (_vm.HasStorageIssues)
+            {
+                _vm.StatusText = "Biblioteka została otwarta z ostrzeżeniami — sprawdź szczegóły";
+                Dispatcher.UIThread.Post(
+                    () => _ = ShowStorageIssuesAsync(),
+                    DispatcherPriority.Background);
+            }
         }
         catch (Exception ex)
         {
@@ -109,7 +260,14 @@ public partial class MainWindow : Window
             _graphControl.Refresh();
             _notesControl.Bind();
             _tasksControl.Bind();
+            ProjectsTree.ItemsSource = null;
+            ProjectsTree.ItemsSource = _vm.ProjectTree;
+            PinnedList.ItemsSource = null;
+            PinnedList.ItemsSource = _vm.PinnedItems;
+            RecentList.ItemsSource = null;
+            RecentList.ItemsSource = _vm.RecentItems;
             UpdateEditorVisibility();
+            UpdateEmptyState();
         });
     }
 
@@ -118,7 +276,15 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             _editorControl.Refresh();
-            UpdateEditorVisibility();
+            if (_vm.IsEditorOpen)
+            {
+                ShowEditorPage();
+            }
+            else if (_editorPageActive)
+            {
+                ShowCenter(CenterViewKind.Notes);
+            }
+
             _notesControl.Bind();
             _tasksControl.Bind();
         });
@@ -126,7 +292,12 @@ public partial class MainWindow : Window
 
     private void UpdateEditorVisibility()
     {
-        RightPanel.IsVisible = _vm.IsEditorOpen;
+        RightPanel.IsVisible = _editorPageActive && _vm.IsEditorOpen;
+    }
+
+    private void UpdateEmptyState()
+    {
+        EmptyStateHost.IsVisible = _vm.IsEmptyWorkspace;
     }
 
     private void OnSearchChanged(object? sender, TextChangedEventArgs e) =>
@@ -134,9 +305,60 @@ public partial class MainWindow : Window
 
     private void OnNewNote(object? sender, RoutedEventArgs e) => CreateNote();
 
+    private void OnNewFromTemplate(object? sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: string templateId })
+        {
+            CreateNoteFromTemplate(templateId);
+        }
+    }
+
+    private void OnShowTemplateMenu(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control anchor)
+        {
+            return;
+        }
+
+        var menu = new ContextMenu();
+        foreach (var template in NoteTemplateCatalog.BuiltIn)
+        {
+            var item = new MenuItem
+            {
+                Header = template.Name
+            };
+            ToolTip.SetTip(item, template.Description);
+            item.Click += (_, _) => CreateNoteFromTemplate(template.Id);
+            menu.Items.Add(item);
+        }
+
+        anchor.ContextMenu = menu;
+        menu.Open(anchor);
+    }
+
     private void OnNewProject(object? sender, RoutedEventArgs e) => CreateProject();
 
     private void OnSave(object? sender, RoutedEventArgs e) => _vm.SaveNow();
+
+    private async void OnPreserveConflictCopy(object? sender, RoutedEventArgs e)
+    {
+        if (!_vm.HasSaveConflict)
+        {
+            _vm.StatusText = "Nie ma konfliktu plików wymagającego zachowania osobnej kopii";
+            return;
+        }
+
+        try
+        {
+            _vm.PreservePendingChangesAsCopies();
+            ShowEditorPage();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się zachować kopii: " + ex.Message;
+            await ShowMessageAsync("Nie udało się zachować kopii", ex.Message);
+        }
+    }
 
     private void OnUndo(object? sender, RoutedEventArgs e)
     {
@@ -164,6 +386,31 @@ public partial class MainWindow : Window
         {
             EnsureGraphSelection();
             _vm.TrashSelectedNote();
+        }
+    }
+
+    private void OnEditorView(object? sender, RoutedEventArgs e)
+    {
+        if (EditorRadio.IsChecked != true)
+        {
+            return;
+        }
+
+        if (_vm.IsEditorOpen)
+        {
+            ShowEditorPage();
+        }
+        else if (_vm.SelectedNote is { } note)
+        {
+            _vm.SelectNote(note, openEditor: true, focusGraph: false);
+        }
+        else if (_vm.SelectedProject is { } project)
+        {
+            _vm.SelectProject(project, openEditor: true, focusGraph: false);
+        }
+        else
+        {
+            ShowCenter(CenterViewKind.Notes);
         }
     }
 
@@ -199,17 +446,6 @@ public partial class MainWindow : Window
 
     private void OnShowAll(object? sender, RoutedEventArgs e) => _vm.ShowAllProjects();
 
-    private void OnToggleArchived(object? sender, RoutedEventArgs e)
-    {
-        _vm.ShowArchived = ArchivedCheck.IsChecked == true;
-    }
-
-    private void OnToggleArchivedMenu(object? sender, RoutedEventArgs e)
-    {
-        _vm.ShowArchived = !_vm.ShowArchived;
-        ArchivedCheck.IsChecked = _vm.ShowArchived;
-    }
-
     private void OnZoomIn(object? sender, RoutedEventArgs e) => ChangeZoom(0.1);
 
     private void OnZoomOut(object? sender, RoutedEventArgs e) => ChangeZoom(-0.1);
@@ -221,49 +457,364 @@ public partial class MainWindow : Window
         _lastZoom = 1;
     }
 
-    private void OnArchiveProject(object? sender, RoutedEventArgs e)
-    {
-        EnsureGraphSelection();
-        _vm.ToggleArchiveSelectedProject();
-    }
-
     private void OnCloseEditor(object? sender, RoutedEventArgs e)
     {
+        _editorControl.ExitFocusMode();
         _vm.CloseEditor();
-        _graphControl.Focus();
+        ShowCenter(CenterViewKind.Notes);
     }
 
     private void OnProjectSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        // Selection alone does not open editor; double-click / Enter does.
+        // unused — TreeView handlers below
     }
 
     private void OnProjectDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (ProjectsList.SelectedItem is Project project)
-        {
-            _vm.SelectProject(project, openEditor: true, focusGraph: true, filterToProject: true);
-        }
+        // unused
     }
 
     private void OnProjectsKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && ProjectsList.SelectedItem is Project project)
+        // unused
+    }
+
+    private void OnProjectTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (ProjectsTree.SelectedItem is not ProjectTreeNode node)
         {
-            _vm.SelectProject(project, openEditor: true, focusGraph: true, filterToProject: true);
+            return;
+        }
+
+        _vm.SelectGraphNode(node.Project.Id, isProject: true);
+        ShowCenter(CenterViewKind.Graph);
+        _graphControl.Refresh();
+        _graphControl.CenterOnNode(node.Project.Id);
+    }
+
+    private void OnProjectTreeDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (ProjectsTree.SelectedItem is ProjectTreeNode node)
+        {
+            _vm.SelectProject(node.Project, openEditor: true, focusGraph: true, filterToProject: true);
+            ShowEditorPage();
+        }
+    }
+
+    private void OnPinnedSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (PinnedList.SelectedItem is SidebarItem item)
+        {
+            NavigateSidebarItem(item, openEditor: false);
+        }
+    }
+
+    private void OnRecentSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (RecentList.SelectedItem is SidebarItem item)
+        {
+            NavigateSidebarItem(item, openEditor: false);
+        }
+    }
+
+    private void OnPinnedDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (PinnedList.SelectedItem is SidebarItem item)
+        {
+            NavigateSidebarItem(item, openEditor: true);
+        }
+    }
+
+    private void OnRecentDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (RecentList.SelectedItem is SidebarItem item)
+        {
+            NavigateSidebarItem(item, openEditor: true);
+        }
+    }
+
+    private void NavigateSidebarItem(SidebarItem item, bool openEditor)
+    {
+        if (item.IsProject)
+        {
+            var project = _vm.Projects.FirstOrDefault(p => p.Id == item.Id);
+            if (project is null)
+            {
+                return;
+            }
+
+            _vm.SelectProject(project, openEditor: openEditor, focusGraph: true, filterToProject: openEditor);
+            _graphControl.Refresh();
+            if (openEditor)
+            {
+                ShowEditorPage();
+            }
+            else
+            {
+                ShowCenter(CenterViewKind.Graph);
+                _graphControl.CenterOnNode(project.Id);
+            }
+            return;
+        }
+
+        var note = _vm.Notes.FirstOrDefault(n => n.Id == item.Id);
+        if (note is not null)
+        {
+            NavigateToNoteOnGraph(note, openEditor);
+        }
+    }
+
+    private void NavigateToNoteOnGraph(Note note, bool openEditor)
+    {
+        _vm.SelectNote(note, openEditor: openEditor, focusGraph: true);
+        _graphControl.Refresh();
+        if (openEditor)
+        {
+            ShowEditorPage();
+        }
+        else
+        {
+            ShowCenter(CenterViewKind.Graph);
+            _graphControl.CenterOnNode(note.Id);
+        }
+    }
+
+    private void AttachTreeContextMenu()
+    {
+        var menu = new ContextMenu();
+        menu.Opening += (_, _) =>
+        {
+            menu.Items.Clear();
+            if (ProjectsTree.SelectedItem is not ProjectTreeNode node)
+            {
+                return;
+            }
+
+            var p = node.Project;
+            menu.Items.Add(MenuAction("Otwórz", () => _vm.SelectProject(p, true, true, true)));
+            menu.Items.Add(MenuAction("Nowa notatka", () =>
+            {
+                _vm.SelectProject(p, false, true, true);
+                CreateNote();
+            }));
+            menu.Items.Add(MenuAction("Nowy podprojekt", () =>
+            {
+                var c = _graphControl.GetViewportCenterInCanvas();
+                _vm.NewProject(c.X, c.Y, p.Id);
+            }));
+            menu.Items.Add(MenuAction("Nowy folder wewnątrz", () =>
+            {
+                var c = _graphControl.GetViewportCenterInCanvas();
+                _vm.NewFolder(c.X, c.Y, p.Id);
+            }));
+            menu.Items.Add(MenuAction(_vm.IsPinned(p.Id) ? "Odepnij" : "Przypnij", () =>
+            {
+                _vm.SelectProject(p, _vm.IsEditorOpen, true);
+                _vm.TogglePinSelected();
+            }));
+            menu.Items.Add(MenuAction("Przenieś do root", () => _vm.SetProjectParent(p, null)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuAction(p.IsFolder ? "Usuń folder…" : "Usuń projekt…",
+                () => _ = ConfirmDeleteProjectAsync(p)));
+        };
+        ProjectsTree.ContextMenu = menu;
+    }
+
+    private Point? _treeDragStart;
+    private ProjectTreeNode? _treeDragNode;
+    private PointerPressedEventArgs? _treeDragPress;
+
+    private void AttachTreeDragDrop()
+    {
+        DragDrop.SetAllowDrop(ProjectsTree, true);
+        DragDrop.AddDragOverHandler(ProjectsTree, OnTreeDragOver);
+        DragDrop.AddDropHandler(ProjectsTree, OnTreeDrop);
+        ProjectsTree.AddHandler(PointerPressedEvent, OnTreePointerPressed, RoutingStrategies.Tunnel);
+        ProjectsTree.AddHandler(PointerMovedEvent, OnTreePointerMoved, RoutingStrategies.Tunnel);
+        ProjectsTree.AddHandler(PointerReleasedEvent, (_, _) =>
+        {
+            _treeDragStart = null;
+            _treeDragNode = null;
+            _treeDragPress = null;
+        }, RoutingStrategies.Tunnel);
+    }
+
+    private void OnTreePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(ProjectsTree).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _treeDragStart = e.GetPosition(ProjectsTree);
+        _treeDragNode = FindTreeNodeAt(e.Source as Control);
+        _treeDragPress = e;
+    }
+
+    private async void OnTreePointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_treeDragStart is null || _treeDragNode is null || _treeDragPress is null ||
+            !e.GetCurrentPoint(ProjectsTree).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        var pos = e.GetPosition(ProjectsTree);
+        var dx = pos.X - _treeDragStart.Value.X;
+        var dy = pos.Y - _treeDragStart.Value.Y;
+        if ((dx * dx) + (dy * dy) < 64)
+        {
+            return;
+        }
+
+        var node = _treeDragNode;
+        var press = _treeDragPress;
+        _treeDragStart = null;
+        _treeDragNode = null;
+        _treeDragPress = null;
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.CreateText("project:" + node.Project.Id));
+        await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Move);
+    }
+
+    private void OnTreeDragOver(object? sender, DragEventArgs e)
+    {
+        var text = e.DataTransfer.TryGetText();
+        e.DragEffects = text is not null &&
+                        (text.StartsWith("project:", StringComparison.Ordinal) ||
+                         text.StartsWith("note:", StringComparison.Ordinal))
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
+    }
+
+    private void OnTreeDrop(object? sender, DragEventArgs e)
+    {
+        var target = FindTreeNodeAt(e.Source as Control)?.Project;
+        var text = e.DataTransfer.TryGetText();
+        if (target is null || text is null)
+        {
+            return;
+        }
+
+        if (text.StartsWith("project:", StringComparison.Ordinal))
+        {
+            var projectId = text["project:".Length..];
+            var project = _vm.Projects.FirstOrDefault(p => p.Id == projectId);
+            if (project is not null)
+            {
+                _vm.SetProjectParent(project, target.Id);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (text.StartsWith("note:", StringComparison.Ordinal))
+        {
+            var noteId = text["note:".Length..];
+            var note = _vm.Notes.FirstOrDefault(n => n.Id == noteId);
+            if (note is not null)
+            {
+                _vm.AttachNoteToProject(note, target);
+            }
+
             e.Handled = true;
         }
-        else if (e.Key == Key.F2)
+    }
+
+    private static ProjectTreeNode? FindTreeNodeAt(Control? source)
+    {
+        var current = source;
+        while (current is not null)
         {
-            _ = RenameAsync();
-            e.Handled = true;
+            if (current.DataContext is ProjectTreeNode node)
+            {
+                return node;
+            }
+
+            current = current.Parent as Control;
         }
+
+        return null;
+    }
+
+    private async Task ConfirmDeleteProjectAsync(Project project)
+    {
+        var kind = project.IsFolder ? "folder" : "projekt";
+        var dialog = new Window
+        {
+            Title = $"Przenieś {kind} do kosza",
+            Width = 420,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+        var ok = false;
+        var message = new TextBlock
+        {
+            Text = $"Przenieść {kind} „{project.Name}” do kosza? Dzieci zostaną przeniesione poziom wyżej, a notatki pozostaną. Projekt będzie można później przywrócić.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(16)
+        };
+        var deleteBtn = new Button { Content = "Przenieś do kosza", MinWidth = 140, IsDefault = true };
+        var cancelBtn = new Button { Content = "Anuluj", MinWidth = 90, IsCancel = true };
+        deleteBtn.Click += (_, _) => { ok = true; dialog.Close(); };
+        cancelBtn.Click += (_, _) => dialog.Close();
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(16),
+            Children = { cancelBtn, deleteBtn }
+        };
+        var root = new DockPanel();
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+        root.Children.Add(message);
+        dialog.Content = root;
+        await dialog.ShowDialog(this);
+        if (ok)
+        {
+            _vm.DeleteProject(project);
+            UpdateEmptyState();
+        }
+    }
+
+    private async void OnDeleteProject(object? sender, RoutedEventArgs e)
+    {
+        var project = _vm.SelectedProject ??
+                      (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project;
+        if (project is null && _vm.SelectedGraphIsProject && _vm.SelectedGraphId is not null)
+        {
+            project = _vm.Projects.FirstOrDefault(p => p.Id == _vm.SelectedGraphId);
+        }
+
+        if (project is not null)
+        {
+            await ConfirmDeleteProjectAsync(project);
+        }
+    }
+
+    private static MenuItem MenuAction(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
     }
 
     private async void OnExportBackup(object? sender, RoutedEventArgs e) => await ExportBackupAsync();
 
     private async Task ExportBackupAsync()
     {
+        if (!_vm.FlushPendingSaves())
+        {
+            await ShowMessageAsync(
+                "Kopia nie została utworzona",
+                "Nie udało się zapisać wszystkich bieżących zmian. Sprawdź uprawnienia i wolne miejsce, a następnie spróbuj ponownie.");
+            return;
+        }
+
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = "Wybierz folder na kopię",
@@ -275,8 +826,72 @@ public partial class MainWindow : Window
         }
 
         var dest = Path.Combine(folders[0].Path.LocalPath, $"MapaNotatek-{DateTime.Now:yyyyMMdd-HHmmss}");
-        BackupService.ExportCopy(_vm.DataFolder, dest);
-        _vm.StatusText = $"Wyeksportowano kopię do {dest}";
+        try
+        {
+            _vm.StatusText = "Tworzenie i sprawdzanie kopii…";
+            await Task.Run(() => BackupService.ExportCopy(_vm.DataFolder, dest));
+            _vm.StatusText = $"Utworzono zweryfikowaną kopię: {dest}";
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się utworzyć kopii: " + ex.Message;
+            await ShowMessageAsync("Kopia nie została utworzona", ex.Message);
+        }
+    }
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var close = new Button
+        {
+            Content = "OK",
+            IsDefault = true,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            MinWidth = 88
+        };
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 480,
+            MinHeight = 180,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(18),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    close
+                }
+            }
+        };
+        close.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(this);
+    }
+
+    private async Task ShowStorageIssuesAsync()
+    {
+        var issues = _vm.StorageIssues;
+        if (issues.Count == 0)
+        {
+            return;
+        }
+
+        var details = string.Join(
+            Environment.NewLine + Environment.NewLine,
+            issues.Take(10).Select(issue =>
+                $"• {issue.Message}\n  {issue.Path}" +
+                (issue.RecoveredFromBackup ? "\n  Wczytano lokalną kopię awaryjną." : string.Empty)));
+        if (issues.Count > 10)
+        {
+            details += $"\n\n…oraz {issues.Count - 10} dalszych ostrzeżeń.";
+        }
+
+        await ShowMessageAsync(
+            "Ostrzeżenia dotyczące danych",
+            details +
+            "\n\nUszkodzone pliki stanu są zachowywane w folderze Recovery. Aplikacja nigdy nie wysyła diagnostyki ani treści przez internet.");
     }
 
     private async void OnSettings(object? sender, RoutedEventArgs e) => await ShowSettingsAsync();
@@ -287,31 +902,189 @@ public partial class MainWindow : Window
 
     private void CreateNote()
     {
-        _vm.NewNote();
-        ShowCenter(CenterViewKind.Graph);
-        _editorControl.Refresh();
-        UpdateEditorVisibility();
-        _editorControl.DefaultFocusTarget().Focus();
+        try
+        {
+            var center = _graphControl.GetViewportCenterInCanvas();
+            _vm.NewNote(center.X, center.Y);
+            ShowEditorPage();
+            _editorControl.Refresh();
+            UpdateEditorVisibility();
+            UpdateEmptyState();
+            _editorControl.DefaultFocusTarget().Focus();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się utworzyć notatki: " + ex.Message;
+            _ = ShowMessageAsync("Nie utworzono notatki", ex.Message);
+        }
+    }
+
+    private void CreateNoteFromTemplate(string templateId)
+    {
+        try
+        {
+            var template = NoteTemplateCatalog.Get(templateId);
+            var center = _graphControl.GetViewportCenterInCanvas();
+            var note = _vm.NewNote(center.X, center.Y);
+            note.Title = NoteTemplateCatalog.ResolveTitle(template, DateTimeOffset.Now);
+            note.Body = template.Body.Trim();
+            note.Checklist = FrontMatter.Parse(note.Body).Checklist;
+            _vm.ScheduleSaveNote(note);
+            _vm.SaveNow();
+            ShowEditorPage();
+            _editorControl.Refresh();
+            UpdateEditorVisibility();
+            UpdateEmptyState();
+            _editorControl.DefaultFocusTarget().Focus();
+            _vm.StatusText = $"Utworzono notatkę z szablonu „{template.Name}”";
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się utworzyć notatki z szablonu: " + ex.Message;
+            _ = ShowMessageAsync("Nie utworzono notatki", ex.Message);
+        }
     }
 
     private void CreateProject()
     {
-        _vm.NewProject();
-        ShowCenter(CenterViewKind.Graph);
-        _editorControl.Refresh();
-        UpdateEditorVisibility();
-        _editorControl.DefaultFocusTarget().Focus();
+        try
+        {
+            var center = _graphControl.GetViewportCenterInCanvas();
+            _vm.NewProject(center.X, center.Y);
+            ShowEditorPage();
+            _editorControl.Refresh();
+            UpdateEditorVisibility();
+            UpdateEmptyState();
+            _editorControl.DefaultFocusTarget().Focus();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się utworzyć projektu: " + ex.Message;
+            _ = ShowMessageAsync("Nie utworzono projektu", ex.Message);
+        }
+    }
+
+    private void OnNewFolder(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var center = _graphControl.GetViewportCenterInCanvas();
+            var parent = _vm.FocusedProject()?.Id ??
+                         (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project.Id;
+            _vm.NewFolder(center.X, center.Y, parent);
+            ShowEditorPage();
+            _editorControl.Refresh();
+            UpdateEditorVisibility();
+            UpdateEmptyState();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się utworzyć folderu: " + ex.Message;
+            _ = ShowMessageAsync("Nie utworzono folderu", ex.Message);
+        }
+    }
+
+    private void OnTogglePin(object? sender, RoutedEventArgs e) => _vm.TogglePinSelected();
+
+    private void OnCenterSelection(object? sender, RoutedEventArgs e)
+    {
+        if (_vm.SelectedGraphId is not null)
+        {
+            ShowCenter(CenterViewKind.Graph);
+            _graphControl.CenterOnNode(_vm.SelectedGraphId);
+        }
+    }
+
+    private async void OnShowTrash(object? sender, RoutedEventArgs e) => await ShowTrashAsync();
+
+    private async Task ShowTrashAsync()
+    {
+        var trashedNotes = _vm.LoadTrashedNotes().ToList();
+        var trashedProjects = _vm.LoadTrashedProjects().ToList();
+        var entries = trashedNotes
+            .Select(note => (Note: (Note?)note, Project: (Project?)null, Label: $"Notatka · {note.Title}"))
+            .Concat(trashedProjects.Select(project =>
+                (Note: (Note?)null, Project: (Project?)project, Label: $"{(project.IsFolder ? "Folder" : "Projekt")} · {project.Name}")))
+            .ToList();
+        var list = new ListBox
+        {
+            Height = 320,
+            ItemsSource = entries.Select(entry => entry.Label).ToList()
+        };
+        var restore = new Button { Content = "Przywróć", MinWidth = 100, IsDefault = true };
+        var close = new Button { Content = "Zamknij", MinWidth = 80 };
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0),
+            Children = { restore, close }
+        };
+        var root = new DockPanel { Margin = new Thickness(12) };
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+        root.Children.Add(new StackPanel
+        {
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock { Text = entries.Count == 0 ? "Kosz jest pusty." : "Wybierz element do przywrócenia:", TextWrapping = TextWrapping.Wrap },
+                list
+            }
+        });
+        var dialog = new Window
+        {
+            Title = "Kosz",
+            Width = 480,
+            Height = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = root
+        };
+        close.Click += (_, _) => dialog.Close();
+        restore.Click += async (_, _) =>
+        {
+            if (list.SelectedIndex >= 0 && list.SelectedIndex < entries.Count)
+            {
+                var entry = entries[list.SelectedIndex];
+                try
+                {
+                    if (entry.Note is not null)
+                    {
+                        _vm.RestoreNoteFromTrash(entry.Note);
+                    }
+                    else if (entry.Project is not null)
+                    {
+                        _vm.RestoreProjectFromTrash(entry.Project);
+                    }
+
+                    dialog.Close();
+                }
+                catch (Exception ex)
+                {
+                    _vm.StatusText = "Nie udało się przywrócić elementu: " + ex.Message;
+                    dialog.Close();
+                    await ShowMessageAsync("Przywracanie nie powiodło się", ex.Message);
+                }
+            }
+        };
+        await dialog.ShowDialog(this);
     }
 
     private void ShowCenter(CenterViewKind kind)
     {
+        _editorControl.ExitFocusMode();
+        _editorPageActive = false;
         _vm.CenterView = kind;
+        RightPanel.IsVisible = false;
         GraphHost.IsVisible = kind == CenterViewKind.Graph;
         NotesHost.IsVisible = kind == CenterViewKind.Notes;
         TasksHost.IsVisible = kind == CenterViewKind.Tasks;
+        EditorRadio.IsChecked = false;
         GraphRadio.IsChecked = kind == CenterViewKind.Graph;
         NotesRadio.IsChecked = kind == CenterViewKind.Notes;
         TasksRadio.IsChecked = kind == CenterViewKind.Tasks;
+        UpdateEmptyState();
         if (kind == CenterViewKind.Graph)
         {
             _graphControl.Focus();
@@ -328,6 +1101,33 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ShowEditorPage()
+    {
+        if (!_vm.IsEditorOpen)
+        {
+            return;
+        }
+
+        _editorPageActive = true;
+        GraphHost.IsVisible = false;
+        NotesHost.IsVisible = false;
+        TasksHost.IsVisible = false;
+        EmptyStateHost.IsVisible = false;
+        RightPanel.IsVisible = true;
+        EditorRadio.IsChecked = true;
+        GraphRadio.IsChecked = false;
+        NotesRadio.IsChecked = false;
+        TasksRadio.IsChecked = false;
+    }
+
+    private void ApplyFocusMode(bool enabled)
+    {
+        SidebarPanel.IsVisible = !enabled;
+        WorkspaceNav.IsVisible = !enabled;
+        MainMenu.IsVisible = !enabled;
+        StatusBar.IsVisible = !enabled;
+    }
+
     private void ChangeZoom(double delta)
     {
         var next = Math.Clamp(_graphControl.ZoomFactor + delta, 0.25, 3);
@@ -342,6 +1142,19 @@ public partial class MainWindow : Window
         SearchBox.Focus();
         SearchBox.SelectAll();
     }
+
+    private void FindInDocument()
+    {
+        if (_editorPageActive && _vm.SelectedNote is not null)
+        {
+            _editorControl.ShowFindPanel();
+            return;
+        }
+
+        FocusSearch();
+    }
+
+    private void OnFindInDocument(object? sender, RoutedEventArgs e) => FindInDocument();
 
     private void CyclePanel(int step)
     {
@@ -423,8 +1236,16 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
         if (result)
         {
-            _vm.RenameSelected(box.Text ?? string.Empty);
-            _editorControl.Refresh();
+            try
+            {
+                _vm.RenameSelected(box.Text ?? string.Empty);
+                _editorControl.Refresh();
+            }
+            catch (Exception ex)
+            {
+                _vm.StatusText = "Nie udało się zmienić nazwy: " + ex.Message;
+                await ShowMessageAsync("Zmiana nazwy nie powiodła się", ex.Message);
+            }
         }
     }
 
@@ -499,18 +1320,28 @@ public partial class MainWindow : Window
     private IEnumerable<AppCommand> BuildCommands() =>
     [
         new() { Name = "Nowa notatka", Shortcut = PlatformKeys.Chord("N"), Run = CreateNote },
+        new() { Name = "Szablon: spotkanie", Shortcut = "", Run = () => CreateNoteFromTemplate("meeting") },
+        new() { Name = "Szablon: decyzja", Shortcut = "", Run = () => CreateNoteFromTemplate("decision") },
+        new() { Name = "Szablon: plan projektu", Shortcut = "", Run = () => CreateNoteFromTemplate("project-brief") },
+        new() { Name = "Szablon: procedura", Shortcut = "", Run = () => CreateNoteFromTemplate("procedure") },
+        new() { Name = "Szablon: notatka dzienna", Shortcut = "", Run = () => CreateNoteFromTemplate("daily") },
         new() { Name = "Nowy projekt", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject },
+        new() { Name = "Nowy folder", Shortcut = "", Run = () => OnNewFolder(null, new RoutedEventArgs()) },
         new() { Name = "Zapisz", Shortcut = PlatformKeys.Chord("S"), Run = _vm.SaveNow },
-        new() { Name = "Szukaj", Shortcut = PlatformKeys.Chord("F"), Run = FocusSearch },
+        new() { Name = "Znajdź w dokumencie", Shortcut = PlatformKeys.Chord("F"), Run = FindInDocument },
+        new() { Name = "Szukaj w całej bibliotece", Shortcut = PlatformKeys.ChordShift("F"), Run = FocusSearch },
         new() { Name = "Widok grafu", Shortcut = PlatformKeys.Chord("1"), Run = () => ShowCenter(CenterViewKind.Graph) },
         new() { Name = "Lista notatek", Shortcut = PlatformKeys.Chord("2"), Run = () => ShowCenter(CenterViewKind.Notes) },
         new() { Name = "Otwarte zadania", Shortcut = PlatformKeys.Chord("3"), Run = () => ShowCenter(CenterViewKind.Tasks) },
         new() { Name = "Pokaż wszystkie projekty", Shortcut = "", Run = _vm.ShowAllProjects },
-        new() { Name = "Zamknij panel", Shortcut = PlatformKeys.Chord("W"), Run = () => _vm.CloseEditor() },
+        new() { Name = "Kosz", Shortcut = "", Run = () => _ = ShowTrashAsync() },
+        new() { Name = "Przypnij / odepnij", Shortcut = "", Run = _vm.TogglePinSelected },
+        new() { Name = "Wyśrodkuj zaznaczenie", Shortcut = "", Run = () => OnCenterSelection(null, new RoutedEventArgs()) },
+        new() { Name = "Zamknij dokument", Shortcut = PlatformKeys.Chord("W"), Run = () => _vm.CloseEditor() },
         new() { Name = "Ustawienia", Shortcut = PlatformKeys.Chord(","), Run = () => _ = ShowSettingsAsync() },
         new() { Name = "Skróty klawiszowe", Shortcut = PlatformKeys.Chord("/"), Run = () => _ = ShowShortcutsAsync() },
         new() { Name = "Eksportuj kopię", Shortcut = "", Run = () => _ = ExportBackupAsync() },
-        new() { Name = "Archiwizuj projekt", Shortcut = "", Run = _vm.ToggleArchiveSelectedProject },
+        new() { Name = "Usuń folder / projekt…", Shortcut = "", Run = () => OnDeleteProject(null, new RoutedEventArgs()) },
         new() { Name = "Przenieś notatkę do kosza", Shortcut = PlatformKeys.TrashLabel, Run = _vm.TrashSelectedNote }
     ];
 
@@ -535,9 +1366,22 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Escape)
         {
-            if (_vm.IsEditorOpen)
+            if (_editorControl.IsFindPanelOpen)
+            {
+                _editorControl.CloseFindPanel();
+            }
+            else if (_editorControl.IsFocusModeEnabled)
+            {
+                _editorControl.ExitFocusMode();
+            }
+            else if (_editorPageActive && _vm.IsEditorOpen)
             {
                 _vm.CloseEditor();
+                ShowCenter(CenterViewKind.Notes);
+            }
+            else if (_vm.FocusedProjectId is not null)
+            {
+                _vm.ShowAllProjects();
                 _graphControl.Focus();
             }
             else
@@ -551,7 +1395,9 @@ public partial class MainWindow : Window
 
         if (mod && e.Key == Key.W)
         {
+            _editorControl.ExitFocusMode();
             _vm.CloseEditor();
+            ShowCenter(CenterViewKind.Notes);
             e.Handled = true;
             return;
         }
@@ -642,7 +1488,14 @@ public partial class MainWindow : Window
 
         if (mod && e.Key == Key.F)
         {
-            FocusSearch();
+            if (shift)
+            {
+                FocusSearch();
+            }
+            else
+            {
+                FindInDocument();
+            }
             e.Handled = true;
             return;
         }
@@ -733,7 +1586,7 @@ public partial class MainWindow : Window
             if (ReferenceEquals(focused, _graphControl) ||
                 ReferenceEquals(focused, _notesControl) ||
                 ReferenceEquals(focused, _tasksControl) ||
-                ReferenceEquals(focused, ProjectsList))
+                ReferenceEquals(focused, ProjectsTree))
             {
                 return true;
             }

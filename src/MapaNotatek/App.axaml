@@ -2,7 +2,149 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MapaNotatek.App"
              RequestedThemeVariant="Default">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppBackgroundBrush">#F5F6F8</SolidColorBrush>
+                    <SolidColorBrush x:Key="WorkspaceBackgroundBrush">#F8F9FB</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceBrush">#FFFFFFFF</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceMutedBrush">#F1F3F6</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceHoverBrush">#F5F7FA</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceSelectedBrush">#EAF2FF</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextPrimaryBrush">#19202B</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextSecondaryBrush">#5B6472</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextTertiaryBrush">#667180</SolidColorBrush>
+                    <SolidColorBrush x:Key="BorderSubtleBrush">#DDE2E9</SolidColorBrush>
+                    <SolidColorBrush x:Key="BorderStrongBrush">#8793A3</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentBrush">#2867D6</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentHoverBrush">#1F56B8</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentSoftBrush">#E6EFFF</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentTextBrush">#174DAB</SolidColorBrush>
+                    <SolidColorBrush x:Key="FocusBrush">#4C8CF5</SolidColorBrush>
+                    <SolidColorBrush x:Key="DangerBrush">#B42318</SolidColorBrush>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppBackgroundBrush">#15181D</SolidColorBrush>
+                    <SolidColorBrush x:Key="WorkspaceBackgroundBrush">#191D23</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceBrush">#20252C</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceMutedBrush">#292F38</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceHoverBrush">#2A3039</SolidColorBrush>
+                    <SolidColorBrush x:Key="SurfaceSelectedBrush">#223A61</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextPrimaryBrush">#F3F5F8</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextSecondaryBrush">#B3BCC9</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextTertiaryBrush">#9CA7B6</SolidColorBrush>
+                    <SolidColorBrush x:Key="BorderSubtleBrush">#353C46</SolidColorBrush>
+                    <SolidColorBrush x:Key="BorderStrongBrush">#4C5665</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentBrush">#6EA3FF</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentHoverBrush">#8AB5FF</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentSoftBrush">#263B60</SolidColorBrush>
+                    <SolidColorBrush x:Key="AccentTextBrush">#A8C8FF</SolidColorBrush>
+                    <SolidColorBrush x:Key="FocusBrush">#83B1FF</SolidColorBrush>
+                    <SolidColorBrush x:Key="DangerBrush">#FF8A80</SolidColorBrush>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <x:Double x:Key="FontSizeCaption">12</x:Double>
+            <x:Double x:Key="FontSizeBody">14</x:Double>
+            <x:Double x:Key="FontSizeHeading">22</x:Double>
+            <CornerRadius x:Key="CornerRadiusSmall">6</CornerRadius>
+            <CornerRadius x:Key="CornerRadiusMedium">10</CornerRadius>
+            <CornerRadius x:Key="CornerRadiusLarge">14</CornerRadius>
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme DensityStyle="Normal" />
+
+        <Style Selector="Window">
+            <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+        </Style>
+        <Style Selector="UserControl">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+
+        <Style Selector="TextBlock.heading">
+            <Setter Property="FontSize" Value="{DynamicResource FontSizeHeading}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.subtitle">
+            <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.metadata">
+            <Setter Property="FontSize" Value="{DynamicResource FontSizeCaption}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.eyebrow">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+            <Setter Property="LetterSpacing" Value="0.7" />
+        </Style>
+
+        <Style Selector="Border.surface">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource CornerRadiusMedium}" />
+        </Style>
+        <Style Selector="Border.tag-chip">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource CornerRadiusSmall}" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+        <Style Selector="Border.tag-chip TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="CornerRadius" Value="{DynamicResource CornerRadiusSmall}" />
+            <Setter Property="FontWeight" Value="Medium" />
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+        </Style>
+        <Style Selector="Button:focus-visible">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Button:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+            <Setter Property="Opacity" Value="0.62" />
+        </Style>
+
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="CornerRadius" Value="{DynamicResource CornerRadiusSmall}" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+            <Setter Property="Padding" Value="10,7" />
+        </Style>
+        <Style Selector="TextBox:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}" />
+        </Style>
+        <Style Selector="TextBox:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="TextBox:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+            <Setter Property="Opacity" Value="0.72" />
+        </Style>
+
+        <Style Selector="ListBox.library-list">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
     </Application.Styles>
 </Application>

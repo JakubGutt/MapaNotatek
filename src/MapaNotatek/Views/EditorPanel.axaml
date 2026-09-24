@@ -1,52 +1,382 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MapaNotatek.Views.EditorPanel">
-    <ScrollViewer>
-        <StackPanel Margin="12" Spacing="8">
-            <StackPanel x:Name="EmptyPanel">
-                <TextBlock Text="Wybierz projekt lub notatkę." Opacity="0.7" TextWrapping="Wrap" />
-            </StackPanel>
+    <UserControl.Styles>
+        <Style Selector="Button.FormatButton">
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.HeaderAction">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
+        <Style Selector="TextBlock.MetaLabel">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.62" />
+        </Style>
+    </UserControl.Styles>
 
-            <StackPanel x:Name="ProjectPanel" IsVisible="False" Spacing="8">
-                <TextBlock Text="Projekt" Opacity="0.7" FontSize="12" />
-                <TextBlock Text="Nazwa" FontWeight="SemiBold" />
-                <TextBox x:Name="ProjectNameBox" PlaceholderText="Nazwa projektu" TextChanged="OnProjectChanged" />
-                <TextBlock Text="Opis" FontWeight="SemiBold" />
-                <TextBox x:Name="ProjectDescriptionBox"
-                         PlaceholderText="Krótki opis"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         MinHeight="80"
-                         TextChanged="OnProjectChanged" />
-                <TextBlock Text="Checklista projektu" FontWeight="SemiBold" />
-                <StackPanel x:Name="ProjectChecklistHost" Spacing="4" />
-                <Button Content="Dodaj zadanie" Click="OnAddProjectTask" />
-                <TextBlock Text="Powiązane notatki" FontWeight="SemiBold" Margin="0,8,0,0" />
-                <ListBox x:Name="RelatedNotesList" MaxHeight="180" DoubleTapped="OnRelatedNoteDoubleTapped" />
-                <TextBlock Text="Otwarte zadania z notatek" FontWeight="SemiBold" Margin="0,8,0,0" />
-                <StackPanel x:Name="ProjectOpenTasksHost" Spacing="4" />
-                <Button Content="Archiwizuj / przywróć" Click="OnArchiveProject" />
+    <Grid>
+        <Grid x:Name="EmptyPanel">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <TextBlock Text="Wybierz notatkę lub projekt"
+                           FontSize="24"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Otwarty dokument pojawi się tutaj w pełnej przestrzeni roboczej."
+                           Opacity="0.65"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center" />
             </StackPanel>
+        </Grid>
 
-            <StackPanel x:Name="NotePanel" IsVisible="False" Spacing="8">
-                <TextBlock Text="Notatka" Opacity="0.7" FontSize="12" />
-                <TextBlock Text="Tytuł" FontWeight="SemiBold" />
-                <TextBox x:Name="NoteTitleBox" PlaceholderText="Tytuł notatki" TextChanged="OnNoteChanged" />
-                <TextBlock Text="Treść" FontWeight="SemiBold" />
-                <TextBox x:Name="NoteBodyBox"
-                         PlaceholderText="Treść notatki"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         MinHeight="160"
-                         TextChanged="OnNoteChanged" />
-                <TextBlock Text="Tagi" FontWeight="SemiBold" />
-                <TextBox x:Name="NoteTagsBox" PlaceholderText="projekt-a, klient-x" TextChanged="OnNoteChanged" />
-                <TextBlock x:Name="NoteDatesText" Opacity="0.7" TextWrapping="Wrap" />
-                <TextBlock Text="Checklista" FontWeight="SemiBold" />
-                <StackPanel x:Name="NoteChecklistHost" Spacing="4" />
-                <Button Content="Dodaj zadanie" Click="OnAddNoteTask" />
-                <Button Content="Przenieś do kosza" Click="OnTrashNote" />
-            </StackPanel>
-        </StackPanel>
-    </ScrollViewer>
+        <Grid x:Name="ProjectPanel" IsVisible="False" RowDefinitions="Auto,*">
+            <Border Grid.Row="0"
+                    Padding="18,12"
+                    BorderThickness="0,0,0,1"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                        <TextBlock x:Name="ProjectKindLabel" Text="Projekt" FontSize="11" Opacity="0.6" />
+                        <TextBlock Text="Przestrzeń projektu" FontSize="18" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="Przenieś do kosza…"
+                            VerticalAlignment="Center"
+                            Click="OnDeleteProject" />
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Row="1">
+                <Border MaxWidth="900"
+                        HorizontalAlignment="Center"
+                        Margin="28"
+                        Padding="34"
+                        CornerRadius="12"
+                        Background="{DynamicResource SurfaceBrush}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="MetaLabel" Text="NAZWA" />
+                        <TextBox x:Name="ProjectNameBox"
+                                 PlaceholderText="Nazwa"
+                                 FontSize="28"
+                                 FontWeight="SemiBold"
+                                 TextChanged="OnProjectChanged" />
+                        <TextBlock Classes="MetaLabel" Text="OPIS" Margin="0,8,0,0" />
+                        <TextBox x:Name="ProjectDescriptionBox"
+                                 PlaceholderText="Cel, kontekst i najważniejsze informacje o projekcie…"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="140"
+                                 TextChanged="OnProjectChanged" />
+
+                        <StackPanel x:Name="ProjectChecklistSection" Spacing="8" Margin="0,12,0,0">
+                            <TextBlock Text="Checklista projektu" FontSize="18" FontWeight="SemiBold" />
+                            <StackPanel x:Name="ProjectChecklistHost" Spacing="5" />
+                            <Button Content="+ Dodaj zadanie" Click="OnAddProjectTask" HorizontalAlignment="Left" />
+                        </StackPanel>
+
+                        <TextBlock Text="Powiązane notatki" FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
+                        <ListBox x:Name="RelatedNotesList" MaxHeight="220" DoubleTapped="OnRelatedNoteDoubleTapped" />
+
+                        <StackPanel x:Name="ProjectTasksSection" Spacing="8" Margin="0,12,0,0">
+                            <TextBlock Text="Otwarte zadania z notatek" FontSize="18" FontWeight="SemiBold" />
+                            <StackPanel x:Name="ProjectOpenTasksHost" Spacing="5" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </ScrollViewer>
+        </Grid>
+
+        <Grid x:Name="NotePanel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,*,Auto">
+            <Border Grid.Row="0"
+                    Padding="18,10"
+                    BorderThickness="0,0,0,1"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="NOTATKA" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                        <TextBlock Text="Edytor wizualny • lokalnie" FontSize="15" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <Button Classes="HeaderAction"
+                                Content="Do Confluence"
+                                ToolTip.Tip="Skopiuj treść jako bezpieczny rich text i zwykły tekst"
+                                Click="OnCopyForConfluence" />
+                        <Button Classes="HeaderAction"
+                                Content="Historia"
+                                ToolTip.Tip="Przeglądaj i przywracaj lokalne wersje dokumentu"
+                                Click="OnShowHistory" />
+                        <Button Classes="HeaderAction"
+                                Content="Przypnij"
+                                ToolTip.Tip="Przypnij lub odepnij notatkę"
+                                Click="OnTogglePin" />
+                        <Button x:Name="MetadataToggleButton"
+                                Classes="HeaderAction"
+                                Content="Ukryj szczegóły"
+                                Click="OnToggleMetadata" />
+                        <Button x:Name="FocusModeButton"
+                                Classes="HeaderAction"
+                                Content="Tryb skupienia"
+                                ToolTip.Tip="Ukryj nawigację i szczegóły"
+                                Click="OnToggleFocusMode" />
+                        <Button x:Name="ExportMenuButton"
+                                Classes="HeaderAction"
+                                Content="Eksportuj ▾"
+                                Click="OnExportMenuClick" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1"
+                    Padding="14,7"
+                    BorderThickness="0,0,0,1"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    Background="{DynamicResource SurfaceMutedBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="FormatToolbar" Orientation="Horizontal" Spacing="3">
+                            <Button Classes="FormatButton" Content="B" FontWeight="Bold"
+                                    ToolTip.Tip="Pogrubienie (⌘/Ctrl+B)" Click="OnFormatBold" />
+                            <Button Classes="FormatButton" Content="I" FontStyle="Italic"
+                                    ToolTip.Tip="Kursywa (⌘/Ctrl+I)" Click="OnFormatItalic" />
+                            <Button Classes="FormatButton" Content="S̶"
+                                    ToolTip.Tip="Przekreślenie" Click="OnFormatStrike" />
+                            <Button Classes="FormatButton" Content="Kod"
+                                    ToolTip.Tip="Kod w tekście" Click="OnFormatCode" />
+                            <Border Width="1" Margin="5,4" Background="{DynamicResource BorderStrongBrush}" Opacity="0.35" />
+                            <Button Classes="FormatButton" Content="H1" ToolTip.Tip="Nagłówek 1" Click="OnFormatH1" />
+                            <Button Classes="FormatButton" Content="H2" ToolTip.Tip="Nagłówek 2" Click="OnFormatH2" />
+                            <Button Classes="FormatButton" Content="H3" ToolTip.Tip="Nagłówek 3" Click="OnFormatH3" />
+                            <Border Width="1" Margin="5,4" Background="{DynamicResource BorderStrongBrush}" Opacity="0.35" />
+                            <Button Classes="FormatButton" Content="• Lista" ToolTip.Tip="Lista punktowana" Click="OnFormatBullet" />
+                            <Button Classes="FormatButton" Content="1. Lista" ToolTip.Tip="Lista numerowana" Click="OnFormatNumbered" />
+                            <Button Classes="FormatButton" Content="☐ Zadanie" ToolTip.Tip="Pozycja checklisty" Click="OnFormatCheck" />
+                            <Button Classes="FormatButton" Content="Cytat" ToolTip.Tip="Cytat" Click="OnFormatQuote" />
+                            <Border Width="1" Margin="5,4" Background="{DynamicResource BorderStrongBrush}" Opacity="0.35" />
+                            <Button Classes="FormatButton" Content="Wikilink" ToolTip.Tip="Powiązanie [[Notatka]]" Click="OnFormatWiki" />
+                            <Button Classes="FormatButton" Content="Link" ToolTip.Tip="Wstaw link" Click="OnFormatLink" />
+                            <Button Classes="FormatButton" Content="Obraz" ToolTip.Tip="Skopiuj lokalny obraz do biblioteki" Click="OnInsertImage" />
+                            <Button Classes="FormatButton" Content="Tabela" ToolTip.Tip="Wstaw edytowalną tabelę" Click="OnFormatTable" />
+                            <Button Classes="FormatButton" Content="Linia" ToolTip.Tip="Separator" Click="OnFormatRule" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" Margin="12,0,0,0">
+                        <RadioButton x:Name="EditModeRadio"
+                                     Content="Wizualnie"
+                                     GroupName="NoteMode"
+                                     IsChecked="True"
+                                     IsCheckedChanged="OnNoteModeChanged"
+                                     VerticalAlignment="Center" />
+                        <RadioButton x:Name="SourceModeRadio"
+                                     Content="Markdown"
+                                     GroupName="NoteMode"
+                                     IsCheckedChanged="OnNoteModeChanged"
+                                     VerticalAlignment="Center" />
+                        <RadioButton x:Name="PreviewModeRadio"
+                                     Content="Podgląd"
+                                     GroupName="NoteMode"
+                                     IsCheckedChanged="OnNoteModeChanged"
+                                     VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border x:Name="FindPanel"
+                    Grid.Row="2"
+                    IsVisible="False"
+                    Padding="14,8"
+                    BorderThickness="0,0,0,1"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    Background="{DynamicResource SurfaceBrush}">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled">
+                    <Grid MinWidth="900"
+                          ColumnDefinitions="260,Auto,180,Auto,Auto,Auto,Auto,*,Auto"
+                          ColumnSpacing="6">
+                        <TextBox x:Name="FindTextBox"
+                                 Grid.Column="0"
+                                 PlaceholderText="Znajdź w dokumencie"
+                                 TextChanged="OnFindTextChanged"
+                                 KeyDown="OnFindKeyDown" />
+                        <TextBlock x:Name="FindCountText"
+                                   Grid.Column="1"
+                                   MinWidth="62"
+                                   VerticalAlignment="Center"
+                                   Text="0 wyników"
+                                   FontSize="11"
+                                   Opacity="0.62" />
+                        <TextBox x:Name="ReplaceTextBox"
+                                 Grid.Column="2"
+                                 PlaceholderText="Zamień na"
+                                 KeyDown="OnReplaceKeyDown" />
+                        <Button Grid.Column="3" Content="Poprzedni" Click="OnFindPrevious" />
+                        <Button Grid.Column="4" Content="Następny" Click="OnFindNext" />
+                        <Button Grid.Column="5" Content="Zamień" Click="OnReplaceCurrent" />
+                        <Button Grid.Column="6" Content="Zamień wszystko" Click="OnReplaceAll" />
+                        <CheckBox x:Name="FindCaseSensitiveBox"
+                                  Grid.Column="7"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center"
+                                  Content="Wielkość liter"
+                                  IsCheckedChanged="OnFindOptionsChanged" />
+                        <Button Grid.Column="8"
+                                Content="Zamknij"
+                                ToolTip.Tip="Zamknij wyszukiwanie (Esc)"
+                                Click="OnCloseFind" />
+                    </Grid>
+                </ScrollViewer>
+            </Border>
+
+            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ClipToBounds="True">
+                <Border Grid.Column="0"
+                        Padding="28,22"
+                        ClipToBounds="True"
+                        Background="{DynamicResource WorkspaceBackgroundBrush}">
+                    <Border x:Name="DocumentPaper"
+                            MaxWidth="920"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            Padding="54,42"
+                            CornerRadius="10"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BoxShadow="0 8 28 0 #18000000">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBox x:Name="NoteTitleBox"
+                                     Grid.Row="0"
+                                     PlaceholderText="Tytuł notatki"
+                                     FontSize="34"
+                                     FontWeight="SemiBold"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Padding="0,0,0,18"
+                                     TextChanged="OnNoteChanged" />
+
+                            <TextBox x:Name="NoteBodyBox"
+                                     Grid.Row="1"
+                                     IsVisible="False"
+                                     PlaceholderText="Widok źródłowy Markdown. Powiązania twórz jako [[wikilinki]]."
+                                     AcceptsReturn="True"
+                                     AcceptsTab="True"
+                                     TextWrapping="Wrap"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     FontSize="16"
+                                     LineHeight="25"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Padding="0"
+                                     TextChanged="OnNoteChanged"
+                                     KeyDown="OnBodyKeyDown" />
+
+                            <ScrollViewer x:Name="VisualEditorScroll"
+                                          Grid.Row="1"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="VisualBlocksHost" Spacing="4" />
+                            </ScrollViewer>
+
+                            <Border x:Name="PreviewHost"
+                                    Grid.Row="1"
+                                    IsVisible="False"
+                                    Background="Transparent">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="PreviewContent" Spacing="7" />
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Border>
+
+                <Border x:Name="MetadataPanel"
+                        Grid.Column="1"
+                        Width="300"
+                        Padding="18"
+                        BorderThickness="1,0,0,0"
+                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                        Background="{DynamicResource SurfaceMutedBrush}">
+                    <ScrollViewer>
+                        <StackPanel Spacing="9">
+                            <TextBlock Text="Szczegóły" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Classes="MetaLabel" Text="TAGI I PROJEKTY" Margin="0,10,0,0" />
+                            <TextBox x:Name="NoteTagsBox"
+                                     PlaceholderText="projekt-a, klient-x"
+                                     TextChanged="OnNoteChanged" />
+                            <TextBlock Text="Tag projektu łączy notatkę z jego widokiem i grafem."
+                                       FontSize="11"
+                                       Opacity="0.55"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Classes="MetaLabel" Text="SPIS TREŚCI" Margin="0,10,0,0" />
+                            <ListBox x:Name="OutlineList"
+                                     MaxHeight="180"
+                                     SelectionChanged="OnOutlineSelectionChanged" />
+                            <TextBlock Text="Nagłówki tworzą nawigację po dokumencie."
+                                       FontSize="11"
+                                       Opacity="0.55"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Classes="MetaLabel" Text="POWIĄZANIA W TREŚCI" Margin="0,10,0,0" />
+                            <ListBox x:Name="WikiLinksList"
+                                     MinHeight="52"
+                                     MaxHeight="140"
+                                     DoubleTapped="OnWikiLinkDoubleTapped" />
+                            <TextBlock Text="Kliknij dwukrotnie, aby otworzyć powiązaną notatkę."
+                                       FontSize="11"
+                                       Opacity="0.55"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Classes="MetaLabel" Text="DATY" Margin="0,10,0,0" />
+                            <TextBlock x:Name="NoteDatesText"
+                                       Opacity="0.68"
+                                       TextWrapping="Wrap"
+                                       FontSize="12" />
+
+                            <TextBlock Text="Zadania notatki" FontSize="17" FontWeight="SemiBold" Margin="0,16,0,0" />
+                            <TextBlock Text="Zadania poniżej są indeksowane w głównym widoku zadań."
+                                       FontSize="11"
+                                       Opacity="0.55"
+                                       TextWrapping="Wrap" />
+                            <StackPanel x:Name="NoteChecklistHost" Spacing="5" />
+                            <Button Content="+ Dodaj zadanie"
+                                    Click="OnAddNoteTask"
+                                    HorizontalAlignment="Left" />
+
+                            <Border Height="1"
+                                    Margin="0,16,0,8"
+                                    Background="{DynamicResource BorderSubtleBrush}" />
+                            <Button Content="Przenieś notatkę do kosza"
+                                    Click="OnTrashNote"
+                                    HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="4"
+                    Padding="16,6"
+                    BorderThickness="0,1,0,0"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <TextBlock x:Name="DocumentCountText"
+                               Grid.Column="0"
+                               FontSize="11"
+                               Opacity="0.62"
+                               Text="0 słów • 0 znaków" />
+                    <TextBlock Grid.Column="1"
+                               FontSize="11"
+                               Opacity="0.5"
+                               Text="Tryb wizualny • przenośny zapis lokalny • zero internetu"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="EditorSaveStatusText"
+                               Grid.Column="2"
+                               FontSize="11"
+                               Opacity="0.72"
+                               Text="Autozapis włączony" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
 </UserControl>

@@ -17,29 +17,43 @@ public enum CenterViewKind
 public sealed class MainViewModel : ObservableObject
 {
     private readonly AppStateStore _stateStore = new();
+    private readonly StorageReadIssue? _startupStorageIssue;
     private readonly DispatcherTimer _saveTimer;
+    private RevisionStore _revisionStore;
     private readonly Stack<(Action Undo, Action Redo)> _undo = new();
     private readonly Stack<(Action Undo, Action Redo)> _redo = new();
     private bool _suppressUndo;
     private string _searchQuery = string.Empty;
-    private CenterViewKind _centerView = CenterViewKind.Graph;
+    private CenterViewKind _centerView = CenterViewKind.Notes;
     private bool _isEditorOpen;
-    private bool _showArchived;
     private string? _focusedProjectId;
     private string? _selectedProjectId;
     private string? _selectedNoteId;
     private string? _selectedGraphId;
     private bool _selectedGraphIsProject;
     private string _statusText = string.Empty;
-    private Note? _pendingSaveNote;
-    private Project? _pendingSaveProject;
+    private readonly Dictionary<string, Note> _pendingSaveNotes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Project> _pendingSaveProjects = new(StringComparer.OrdinalIgnoreCase);
+    private Exception? _lastSaveError;
 
     public MainViewModel()
     {
-        State = _stateStore.Load();
+        AppState state;
+        try
+        {
+            state = _stateStore.Load();
+        }
+        catch (StorageReadException ex)
+        {
+            _startupStorageIssue = ex.Issue;
+            state = _stateStore.RecoverWithFreshState();
+        }
+
+        _startupStorageIssue ??= _stateStore.LastLoadIssue;
+        State = state;
         Store = new MarkdownStore(State.DataFolder ?? _stateStore.DefaultDataFolder);
+        _revisionStore = new RevisionStore(Store.Root);
         Store.EnsureFolders();
-        _showArchived = State.ShowArchived;
         _focusedProjectId = State.FocusedProjectId;
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
         _saveTimer.Tick += (_, _) =>
@@ -55,14 +69,18 @@ public sealed class MainViewModel : ObservableObject
     public List<Project> Projects { get; } = [];
     public List<Note> Notes { get; } = [];
     public ObservableCollection<Project> VisibleProjects { get; } = [];
+    public ObservableCollection<ProjectTreeNode> ProjectTree { get; } = [];
     public ObservableCollection<Note> VisibleNotes { get; } = [];
     public ObservableCollection<OpenTask> VisibleTasks { get; } = [];
     public ObservableCollection<Note> RelatedNotes { get; } = [];
     public ObservableCollection<OpenTask> ProjectNoteTasks { get; } = [];
+    public ObservableCollection<SidebarItem> PinnedItems { get; } = [];
+    public ObservableCollection<SidebarItem> RecentItems { get; } = [];
 
     public event Action? GraphChanged;
     public event Action? EditorChanged;
     public event Action? SelectionChanged;
+    public event Action<string>? FocusNodeRequested;
 
     public string SearchQuery
     {
@@ -101,21 +119,6 @@ public sealed class MainViewModel : ObservableObject
         set => Set(ref _isEditorOpen, value);
     }
 
-    public bool ShowArchived
-    {
-        get => _showArchived;
-        set
-        {
-            if (Set(ref _showArchived, value))
-            {
-                State.ShowArchived = value;
-                SaveState();
-                RefreshVisible();
-                GraphChanged?.Invoke();
-            }
-        }
-    }
-
     public string? FocusedProjectId
     {
         get => _focusedProjectId;
@@ -124,7 +127,7 @@ public sealed class MainViewModel : ObservableObject
             if (Set(ref _focusedProjectId, value))
             {
                 State.FocusedProjectId = value;
-                SaveState();
+                TrySaveState();
                 RefreshVisible();
                 GraphChanged?.Invoke();
             }
@@ -150,6 +153,36 @@ public sealed class MainViewModel : ObservableObject
 
     public string DataFolder => Store.Root;
 
+    public bool HasPendingSaves => _pendingSaveNotes.Count > 0 || _pendingSaveProjects.Count > 0;
+
+    public int PendingSaveCount => _pendingSaveNotes.Count + _pendingSaveProjects.Count;
+
+    public bool HasSaveError => _lastSaveError is not null;
+
+    public bool HasSaveConflict => _lastSaveError is StorageConflictException;
+
+    public string? LastSaveErrorMessage => _lastSaveError?.Message;
+
+    public IReadOnlyList<StorageReadIssue> StorageIssues
+    {
+        get
+        {
+            var issues = new List<StorageReadIssue>();
+            if (_startupStorageIssue is not null)
+            {
+                issues.Add(_startupStorageIssue);
+            }
+
+            issues.AddRange(Store.ReadIssues);
+            return issues
+                .GroupBy(issue => (issue.Area, issue.Path, issue.Message))
+                .Select(group => group.First())
+                .ToList();
+        }
+    }
+
+    public bool HasStorageIssues => StorageIssues.Count > 0;
+
     public IEnumerable<Project> GraphProjects => VisibleGraphProjects();
     public IEnumerable<Note> GraphNotes => VisibleGraphNotes();
 
@@ -161,24 +194,32 @@ public sealed class MainViewModel : ObservableObject
         Notes.AddRange(Store.LoadNotes());
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
         RefreshVisible();
+        Raise(nameof(StorageIssues));
+        Raise(nameof(HasStorageIssues));
         GraphChanged?.Invoke();
         EditorChanged?.Invoke();
     }
 
-    public Project NewProject()
+    public Project NewProject(double? x = null, double? y = null, string? parentId = null, bool isFolder = false)
     {
-        var project = Store.CreateProject("Nowy projekt");
+        var name = isFolder ? "Nowy folder" : "Nowy projekt";
+        var project = Store.CreateProject(name, parentId ?? FocusedProject()?.Id, isFolder);
         Projects.Add(project);
+        PlaceNewNode(project.Id, x, y, preferNearParent: parentId ?? FocusedProject()?.Id);
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
-        SaveState();
+        TrySaveState();
         RefreshVisible();
         SelectProject(project, openEditor: true, focusGraph: true);
-        StatusText = "Utworzono projekt";
+        StatusText = isFolder ? "Utworzono folder" : "Utworzono projekt";
         GraphChanged?.Invoke();
+        FocusNodeRequested?.Invoke(project.Id);
         return project;
     }
 
-    public Note NewNote()
+    public Project NewFolder(double? x = null, double? y = null, string? parentId = null) =>
+        NewProject(x, y, parentId, isFolder: true);
+
+    public Note NewNote(double? x = null, double? y = null)
     {
         List<string> tags = [];
         var focused = FocusedProject();
@@ -193,13 +234,39 @@ public sealed class MainViewModel : ObservableObject
 
         var note = Store.CreateNote("Nowa notatka", tags);
         Notes.Insert(0, note);
+        PlaceNewNode(note.Id, x, y, preferNearParent: focused?.Id ?? SelectedProject?.Id);
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
-        SaveState();
+        TrySaveState();
         RefreshVisible();
         SelectNote(note, openEditor: true, focusGraph: true);
         StatusText = "Utworzono notatkę";
         GraphChanged?.Invoke();
+        FocusNodeRequested?.Invoke(note.Id);
         return note;
+    }
+
+    private void PlaceNewNode(string id, double? x, double? y, string? preferNearParent)
+    {
+        // Nested items always fan out around the parent — never stack on the same viewport point.
+        if (preferNearParent is not null &&
+            State.NodePositions.TryGetValue(preferNearParent, out var parentPos))
+        {
+            var siblingIndex = LayoutService.CountSiblings(Projects, preferNearParent, id);
+            LayoutService.PlaceNear(State.NodePositions, id, parentPos.X, parentPos.Y, siblingIndex);
+            return;
+        }
+
+        if (x is not null && y is not null)
+        {
+            LayoutService.PlaceAtAvoidingOverlap(State.NodePositions, id, x.Value, y.Value);
+            return;
+        }
+
+        LayoutService.PlaceAtAvoidingOverlap(
+            State.NodePositions,
+            id,
+            LayoutService.CanvasWidth / 2,
+            LayoutService.CanvasHeight / 2);
     }
 
     public void SelectProject(Project project, bool openEditor, bool focusGraph, bool filterToProject = false)
@@ -221,6 +288,7 @@ public sealed class MainViewModel : ObservableObject
         IsEditorOpen = openEditor;
         Raise(nameof(SelectedProject));
         Raise(nameof(SelectedNote));
+        TrackRecent(project.Id);
         RefreshRelated();
         EditorChanged?.Invoke();
         SelectionChanged?.Invoke();
@@ -241,6 +309,7 @@ public sealed class MainViewModel : ObservableObject
         IsEditorOpen = openEditor;
         Raise(nameof(SelectedProject));
         Raise(nameof(SelectedNote));
+        TrackRecent(note.Id);
         RefreshRelated();
         EditorChanged?.Invoke();
         SelectionChanged?.Invoke();
@@ -252,7 +321,14 @@ public sealed class MainViewModel : ObservableObject
         _selectedGraphId = id;
         _selectedGraphIsProject = isProject;
         SelectionChanged?.Invoke();
-        GraphChanged?.Invoke();
+        // Do not raise GraphChanged — a full Refresh would recreate nodes and break drag.
+    }
+
+    public void ClearGraphSelection()
+    {
+        _selectedGraphId = null;
+        _selectedGraphIsProject = false;
+        SelectionChanged?.Invoke();
     }
 
     public void OpenSelectedGraphNode()
@@ -321,14 +397,15 @@ public sealed class MainViewModel : ObservableObject
                 });
         }
 
-        SaveState();
+        TrySaveState();
     }
 
     public void ScheduleSaveNote(Note note)
     {
         note.Modified = DateTimeOffset.Now;
-        _pendingSaveNote = note;
-        _pendingSaveProject = null;
+        _pendingSaveNotes[note.Id] = note;
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
         _saveTimer.Stop();
         _saveTimer.Start();
         StatusText = "Zapisywanie…";
@@ -337,8 +414,9 @@ public sealed class MainViewModel : ObservableObject
     public void ScheduleSaveProject(Project project)
     {
         project.Modified = DateTimeOffset.Now;
-        _pendingSaveProject = project;
-        _pendingSaveNote = null;
+        _pendingSaveProjects[project.Id] = project;
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
         _saveTimer.Stop();
         _saveTimer.Start();
         StatusText = "Zapisywanie…";
@@ -347,9 +425,74 @@ public sealed class MainViewModel : ObservableObject
     public void SaveNow()
     {
         _saveTimer.Stop();
-        FlushPendingSaves();
-        StatusText = "Zapisano";
+        if (FlushPendingSaves())
+        {
+            StatusText = SavedStatus();
+        }
     }
+
+    public IReadOnlyList<RevisionInfo> GetSelectedNoteRevisions()
+    {
+        var note = SelectedNote;
+        return note is null ? [] : _revisionStore.List("Notes", note.Id);
+    }
+
+    public string GetNoteRevisionPreview(RevisionInfo revision)
+    {
+        var parsed = FrontMatter.Parse(_revisionStore.Read(revision));
+        var title = string.IsNullOrWhiteSpace(parsed.Title) ? "Bez tytułu" : parsed.Title;
+        var tags = FrontMatter.SplitTags(parsed["tags"]);
+        var tagLine = tags.Count == 0 ? string.Empty : $"Tagi: {string.Join(", ", tags)}\n\n";
+        return $"{title}\n\n{tagLine}{parsed.Body}".TrimEnd();
+    }
+
+    public void RestoreSelectedNoteRevision(RevisionInfo revision)
+    {
+        var note = SelectedNote ?? throw new InvalidOperationException("Nie wybrano notatki.");
+        if (!FlushPendingSaves())
+        {
+            throw new IOException("Nie można przywrócić wersji, dopóki bieżące zmiany nie zostaną bezpiecznie zapisane.");
+        }
+
+        var parsed = FrontMatter.Parse(_revisionStore.Read(revision));
+        var previousTitle = note.Title;
+        var previousBody = note.Body;
+        var previousTags = note.Tags;
+        var previousChecklist = note.Checklist;
+        var previousModified = note.Modified;
+        var previousPath = note.FilePath;
+        var previousHash = note.PersistedContentHash;
+
+        try
+        {
+            note.Title = string.IsNullOrWhiteSpace(parsed.Title) ? note.Title : parsed.Title;
+            note.Body = parsed.Body;
+            note.Tags = FrontMatter.SplitTags(parsed["tags"]);
+            note.Checklist = parsed.Checklist;
+            SaveNoteWithHistory(note);
+        }
+        catch
+        {
+            note.Title = previousTitle;
+            note.Body = previousBody;
+            note.Tags = previousTags;
+            note.Checklist = previousChecklist;
+            note.Modified = previousModified;
+            note.FilePath = previousPath;
+            note.PersistedContentHash = previousHash;
+            throw;
+        }
+
+        RefreshVisible();
+        RefreshRelated();
+        GraphChanged?.Invoke();
+        EditorChanged?.Invoke();
+        StatusText = $"Przywrócono wersję z {revision.TimestampUtc.ToLocalTime():g}";
+    }
+
+    public bool IsEmptyWorkspace => Projects.Count == 0 && Notes.Count == 0;
+
+    private static string SavedStatus() => $"Zapisano {DateTime.Now:HH:mm}";
 
     public void RenameSelected(string name)
     {
@@ -362,22 +505,32 @@ public sealed class MainViewModel : ObservableObject
         {
             var previous = project.Name;
             project.Name = name.Trim();
-            ApplyProjectSlug(project);
-            Store.SaveProject(project);
+            try
+            {
+                SaveProjectWithHistory(project);
+            }
+            catch (Exception ex)
+            {
+                _pendingSaveProjects[project.Id] = project;
+                RecordSaveFailure(ex);
+                EditorChanged?.Invoke();
+                return;
+            }
+
             PushUndo(
                 () =>
                 {
                     project.Name = previous;
-                    Store.SaveProject(project);
+                    SaveProjectWithHistory(project);
                     Reload();
                 },
                 () =>
                 {
                     project.Name = name.Trim();
-                    Store.SaveProject(project);
+                    SaveProjectWithHistory(project);
                     Reload();
                 });
-            ScheduleSaveProject(project);
+            StatusText = SavedStatus();
             EditorChanged?.Invoke();
             return;
         }
@@ -386,21 +539,32 @@ public sealed class MainViewModel : ObservableObject
         {
             var previous = note.Title;
             note.Title = name.Trim();
-            Store.SaveNote(note);
+            try
+            {
+                SaveNoteWithHistory(note);
+            }
+            catch (Exception ex)
+            {
+                _pendingSaveNotes[note.Id] = note;
+                RecordSaveFailure(ex);
+                EditorChanged?.Invoke();
+                return;
+            }
+
             PushUndo(
                 () =>
                 {
                     note.Title = previous;
-                    Store.SaveNote(note);
+                    SaveNoteWithHistory(note);
                     Reload();
                 },
                 () =>
                 {
                     note.Title = name.Trim();
-                    Store.SaveNote(note);
+                    SaveNoteWithHistory(note);
                     Reload();
                 });
-            ScheduleSaveNote(note);
+            StatusText = SavedStatus();
             EditorChanged?.Invoke();
         }
     }
@@ -418,8 +582,22 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        FlushPendingSaves();
-        Store.MoveNoteToTrash(note);
+        if (!FlushPendingSaves())
+        {
+            StatusText = "Nie przeniesiono notatki do kosza, ponieważ nie udało się bezpiecznie zapisać zmian";
+            return;
+        }
+
+        try
+        {
+            Store.MoveNoteToTrash(note);
+        }
+        catch (Exception ex)
+        {
+            RecordSaveFailure(ex);
+            return;
+        }
+
         Notes.Remove(note);
         var snapshot = note;
         PushUndo(
@@ -442,47 +620,22 @@ public sealed class MainViewModel : ObservableObject
         _selectedNoteId = null;
         IsEditorOpen = false;
         RefreshVisible();
-        SaveState();
-        StatusText = "Notatka przeniesiona do kosza";
+        var stateSaved = true;
+        try
+        {
+            SaveState();
+        }
+        catch (Exception ex)
+        {
+            stateSaved = false;
+            RecordSaveFailure(ex);
+        }
+        if (stateSaved)
+        {
+            StatusText = "Notatka przeniesiona do kosza";
+        }
         GraphChanged?.Invoke();
         EditorChanged?.Invoke();
-    }
-
-    public void ToggleArchiveSelectedProject()
-    {
-        var project = SelectedProject;
-        if (project is null && _selectedGraphIsProject && _selectedGraphId is not null)
-        {
-            project = Projects.FirstOrDefault(p => p.Id == _selectedGraphId);
-        }
-
-        if (project is null)
-        {
-            return;
-        }
-
-        var next = !project.IsArchived;
-        project.IsArchived = next;
-        Store.SaveProject(project);
-        PushUndo(
-            () =>
-            {
-                project.IsArchived = !next;
-                Store.SaveProject(project);
-                RefreshVisible();
-                GraphChanged?.Invoke();
-            },
-            () =>
-            {
-                project.IsArchived = next;
-                Store.SaveProject(project);
-                RefreshVisible();
-                GraphChanged?.Invoke();
-            });
-        RefreshVisible();
-        GraphChanged?.Invoke();
-        EditorChanged?.Invoke();
-        StatusText = project.IsArchived ? "Projekt zarchiwizowany" : "Projekt przywrócony";
     }
 
     public void ToggleTask(OpenTask task)
@@ -494,7 +647,18 @@ public sealed class MainViewModel : ObservableObject
             var project = Projects.FirstOrDefault(p => p.Id == task.SourceId);
             if (project is not null)
             {
-                Store.SaveProject(project);
+                try
+                {
+                    SaveProjectWithHistory(project);
+                }
+                catch (Exception ex)
+                {
+                    _pendingSaveProjects[project.Id] = project;
+                    RecordSaveFailure(ex);
+                    RefreshVisible();
+                    EditorChanged?.Invoke();
+                    return;
+                }
             }
         }
         else
@@ -502,7 +666,18 @@ public sealed class MainViewModel : ObservableObject
             var note = Notes.FirstOrDefault(n => n.Id == task.SourceId);
             if (note is not null)
             {
-                Store.SaveNote(note);
+                try
+                {
+                    SaveNoteWithHistory(note);
+                }
+                catch (Exception ex)
+                {
+                    _pendingSaveNotes[note.Id] = note;
+                    RecordSaveFailure(ex);
+                    RefreshVisible();
+                    EditorChanged?.Invoke();
+                    return;
+                }
             }
         }
 
@@ -537,10 +712,21 @@ public sealed class MainViewModel : ObservableObject
 
         _suppressUndo = true;
         var action = _undo.Pop();
-        action.Undo();
-        _redo.Push(action);
-        _suppressUndo = false;
-        StatusText = "Cofnięto";
+        try
+        {
+            action.Undo();
+            _redo.Push(action);
+            StatusText = "Cofnięto";
+        }
+        catch (Exception ex)
+        {
+            _undo.Push(action);
+            RecordSaveFailure(ex);
+        }
+        finally
+        {
+            _suppressUndo = false;
+        }
     }
 
     public void Redo()
@@ -552,46 +738,143 @@ public sealed class MainViewModel : ObservableObject
 
         _suppressUndo = true;
         var action = _redo.Pop();
-        action.Redo();
-        _undo.Push(action);
-        _suppressUndo = false;
-        StatusText = "Ponowiono";
+        try
+        {
+            action.Redo();
+            _undo.Push(action);
+            StatusText = "Ponowiono";
+        }
+        catch (Exception ex)
+        {
+            _redo.Push(action);
+            RecordSaveFailure(ex);
+        }
+        finally
+        {
+            _suppressUndo = false;
+        }
     }
 
-    public void ChangeDataFolder(string folder)
+    public void ChangeDataFolder(string folder, bool loadLibraryState = false)
     {
-        FlushPendingSaves();
-        Store.SetRoot(folder);
-        State.DataFolder = folder;
-        SaveState();
-        Reload();
-        StatusText = "Zmieniono folder danych";
+        if (!FlushPendingSaves())
+        {
+            throw new IOException("Nie można zmienić biblioteki, dopóki niezapisane zmiany nie zostaną bezpiecznie zapisane.");
+        }
+
+        LibraryFolderService.EnsureCanOpen(folder, Store.Root);
+        var fullPath = Path.GetFullPath(folder);
+        AppState? libraryState = null;
+        if (loadLibraryState && File.Exists(Path.Combine(fullPath, "app-state.json")))
+        {
+            libraryState = new AppStateStore(fullPath).Load();
+        }
+
+        // Read the candidate before touching the active library. This catches inaccessible
+        // folders and fatal parse/enumeration errors while rollback is still trivial.
+        var candidateStore = new MarkdownStore(fullPath);
+        _ = candidateStore.LoadProjects();
+        _ = candidateStore.LoadNotes();
+
+        var previousRoot = Store.Root;
+        var previousState = CloneState(State);
+        var previousFocusedProjectId = _focusedProjectId;
+        try
+        {
+            Store.SetRoot(fullPath);
+            _revisionStore = new RevisionStore(Store.Root);
+            if (libraryState is not null)
+            {
+                CopyState(libraryState, State);
+                _focusedProjectId = libraryState.FocusedProjectId;
+            }
+
+            State.DataFolder = fullPath;
+            Reload();
+            SaveState();
+        }
+        catch
+        {
+            CopyState(previousState, State);
+            _focusedProjectId = previousFocusedProjectId;
+            Store.SetRoot(previousRoot);
+            _revisionStore = new RevisionStore(Store.Root);
+            Reload();
+            throw;
+        }
+
+        StatusText = libraryState is null
+            ? "Otwarto lokalną bibliotekę"
+            : "Przywrócono bibliotekę wraz z układem i przypiętymi elementami";
+    }
+
+    private static AppState CloneState(AppState state) => new()
+    {
+        DataFolder = state.DataFolder,
+        Zoom = state.Zoom,
+        NodePositions = state.NodePositions.ToDictionary(
+            pair => pair.Key,
+            pair => new GraphPosition
+            {
+                Id = pair.Value.Id,
+                X = pair.Value.X,
+                Y = pair.Value.Y
+            },
+            StringComparer.OrdinalIgnoreCase),
+        FocusedProjectId = state.FocusedProjectId,
+        PinnedIds = state.PinnedIds.ToList(),
+        RecentIds = state.RecentIds.ToList()
+    };
+
+    private static void CopyState(AppState source, AppState destination)
+    {
+        var clone = CloneState(source);
+        destination.DataFolder = clone.DataFolder;
+        destination.Zoom = clone.Zoom;
+        destination.NodePositions = clone.NodePositions;
+        destination.FocusedProjectId = clone.FocusedProjectId;
+        destination.PinnedIds = clone.PinnedIds;
+        destination.RecentIds = clone.RecentIds;
     }
 
     public void SaveZoom(double zoom)
     {
         State.Zoom = zoom;
-        SaveState();
+        TrySaveState();
     }
 
-    public void FlushPendingSaves()
+    public bool FlushPendingSaves()
     {
+        _saveTimer.Stop();
         var changed = false;
-        if (_pendingSaveNote is not null)
+        Exception? firstError = null;
+
+        foreach (var note in _pendingSaveNotes.Values.ToList())
         {
-            Store.SaveNote(_pendingSaveNote);
-            _pendingSaveNote = null;
-            StatusText = "Zapisano";
-            changed = true;
+            try
+            {
+                SaveNoteWithHistory(note);
+                _pendingSaveNotes.Remove(note.Id);
+                changed = true;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex;
+            }
         }
 
-        if (_pendingSaveProject is not null)
+        foreach (var project in _pendingSaveProjects.Values.ToList())
         {
-            ApplyProjectSlug(_pendingSaveProject);
-            Store.SaveProject(_pendingSaveProject);
-            _pendingSaveProject = null;
-            StatusText = "Zapisano";
-            changed = true;
+            try
+            {
+                SaveProjectWithHistory(project);
+                _pendingSaveProjects.Remove(project.Id);
+                changed = true;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex;
+            }
         }
 
         if (changed)
@@ -600,6 +883,447 @@ public sealed class MainViewModel : ObservableObject
             RefreshRelated();
             GraphChanged?.Invoke();
         }
+
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
+
+        if (firstError is null)
+        {
+            _lastSaveError = null;
+            Raise(nameof(HasSaveError));
+            Raise(nameof(HasSaveConflict));
+            Raise(nameof(LastSaveErrorMessage));
+            if (changed)
+            {
+                StatusText = SavedStatus();
+            }
+
+            return true;
+        }
+
+        _lastSaveError = firstError;
+        Raise(nameof(HasSaveError));
+        Raise(nameof(HasSaveConflict));
+        Raise(nameof(LastSaveErrorMessage));
+        StatusText = $"Nie udało się zapisać wszystkich zmian: {firstError.Message}";
+        return false;
+    }
+
+    private void RecordSaveFailure(Exception error)
+    {
+        _lastSaveError = error;
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
+        Raise(nameof(HasSaveError));
+        Raise(nameof(HasSaveConflict));
+        Raise(nameof(LastSaveErrorMessage));
+        StatusText = $"Nie udało się bezpiecznie zapisać zmiany: {error.Message}";
+    }
+
+    public int PreservePendingChangesAsCopies()
+    {
+        if (!HasSaveConflict)
+        {
+            return 0;
+        }
+
+        var copies = 0;
+        string? firstCopyId = null;
+        var firstCopyIsProject = false;
+        foreach (var original in _pendingSaveNotes.Values.ToList())
+        {
+            var copy = Store.CreateNote(original.Title + " — kopia lokalna", original.Tags);
+            copy.Body = original.Body;
+            copy.Checklist = original.Checklist
+                .Select(item => new ChecklistItem { Text = item.Text, IsDone = item.IsDone })
+                .ToList();
+            Store.SaveNote(copy);
+            firstCopyId ??= copy.Id;
+            _pendingSaveNotes.Remove(original.Id);
+            copies++;
+        }
+
+        foreach (var original in _pendingSaveProjects.Values.ToList())
+        {
+            var copy = Store.CreateProject(
+                original.Name + " — kopia lokalna",
+                original.ParentId,
+                original.IsFolder);
+            copy.Description = original.Description;
+            copy.Checklist = original.Checklist
+                .Select(item => new ChecklistItem { Text = item.Text, IsDone = item.IsDone })
+                .ToList();
+            Store.SaveProject(copy);
+            if (firstCopyId is null)
+            {
+                firstCopyId = copy.Id;
+                firstCopyIsProject = true;
+            }
+
+            _pendingSaveProjects.Remove(original.Id);
+            copies++;
+        }
+
+        _lastSaveError = null;
+        Reload();
+        if (firstCopyId is not null)
+        {
+            if (firstCopyIsProject)
+            {
+                var project = Projects.FirstOrDefault(item => item.Id == firstCopyId);
+                if (project is not null)
+                {
+                    SelectProject(project, openEditor: true, focusGraph: true);
+                }
+            }
+            else
+            {
+                var note = Notes.FirstOrDefault(item => item.Id == firstCopyId);
+                if (note is not null)
+                {
+                    SelectNote(note, openEditor: true, focusGraph: true);
+                }
+            }
+        }
+
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
+        Raise(nameof(HasSaveError));
+        Raise(nameof(HasSaveConflict));
+        Raise(nameof(LastSaveErrorMessage));
+        StatusText = copies == 1
+            ? "Niezapisane zmiany zachowano jako osobną kopię lokalną"
+            : $"Niezapisane zmiany zachowano jako {copies} osobne kopie lokalne";
+        return copies;
+    }
+
+    public void RestoreNoteFromTrash(Note note)
+    {
+        Store.RestoreNoteFromTrash(note);
+        if (!Notes.Any(n => n.Id == note.Id))
+        {
+            Notes.Insert(0, note);
+        }
+
+        Reload();
+        SelectNote(note, openEditor: true, focusGraph: true);
+        StatusText = "Przywrócono z kosza";
+    }
+
+    public IReadOnlyList<Note> LoadTrashedNotes() => Store.LoadTrashedNotes();
+
+    public IReadOnlyList<Project> LoadTrashedProjects() => Store.LoadTrashedProjects();
+
+    public void RestoreProjectFromTrash(Project project)
+    {
+        Store.RestoreProjectFromTrash(project);
+        Reload();
+        var restored = Projects.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, project.Id, StringComparison.OrdinalIgnoreCase));
+        if (restored is not null)
+        {
+            SelectProject(restored, openEditor: true, focusGraph: true);
+        }
+
+        StatusText = "Projekt przywrócono z kosza";
+    }
+
+    public void TogglePinSelected()
+    {
+        var id = SelectedNote?.Id ?? SelectedProject?.Id ?? SelectedGraphId;
+        if (id is null)
+        {
+            return;
+        }
+
+        if (State.PinnedIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+        {
+            State.PinnedIds.RemoveAll(x => string.Equals(x, id, StringComparison.OrdinalIgnoreCase));
+            StatusText = "Odpięto";
+        }
+        else
+        {
+            State.PinnedIds.Insert(0, id);
+            StatusText = "Przypięto";
+        }
+
+        TrySaveState();
+        RefreshPinnedAndRecent();
+    }
+
+    public bool IsPinned(string id) =>
+        State.PinnedIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+
+    public void SetProjectParent(Project project, string? parentId)
+    {
+        if (parentId is not null &&
+            (string.Equals(project.Id, parentId, StringComparison.OrdinalIgnoreCase) ||
+             IsAncestor(project.Id, parentId)))
+        {
+            StatusText = "Nie można utworzyć cyklu w hierarchii";
+            return;
+        }
+
+        var oldParent = project.ParentId;
+        project.ParentId = parentId;
+        try
+        {
+            SaveProjectWithHistory(project);
+        }
+        catch (Exception ex)
+        {
+            _pendingSaveProjects[project.Id] = project;
+            RecordSaveFailure(ex);
+            RefreshVisible();
+            GraphChanged?.Invoke();
+            return;
+        }
+        PushUndo(
+            () =>
+            {
+                project.ParentId = oldParent;
+                SaveProjectWithHistory(project);
+                RefreshVisible();
+                GraphChanged?.Invoke();
+            },
+            () =>
+            {
+                project.ParentId = parentId;
+                SaveProjectWithHistory(project);
+                RefreshVisible();
+                GraphChanged?.Invoke();
+            });
+        RefreshVisible();
+        GraphChanged?.Invoke();
+        StatusText = parentId is null ? "Przeniesiono do root" : "Zmieniono folder nadrzędny";
+    }
+
+    public void AttachNoteToProject(Note note, Project project)
+    {
+        var slug = project.Slug;
+        if (note.Tags.Contains(slug, StringComparer.OrdinalIgnoreCase))
+        {
+            StatusText = "Notatka już w tym projekcie";
+            return;
+        }
+
+        note.Tags.Add(slug);
+        ScheduleSaveNote(note);
+        RefreshVisible();
+        RefreshRelated();
+        GraphChanged?.Invoke();
+        StatusText = $"Dodano notatkę do „{project.Name}”";
+    }
+
+    public void DeleteSelectedProject()
+    {
+        var project = SelectedProject;
+        if (project is null && _selectedGraphIsProject && _selectedGraphId is not null)
+        {
+            project = Projects.FirstOrDefault(p => p.Id == _selectedGraphId);
+        }
+
+        if (project is not null)
+        {
+            DeleteProject(project);
+        }
+    }
+
+    public void DeleteProject(Project project)
+    {
+        if (!FlushPendingSaves())
+        {
+            StatusText = "Nie przeniesiono projektu do kosza, ponieważ nie udało się zapisać zmian";
+            return;
+        }
+
+        var parentId = project.ParentId;
+        var children = Projects.Where(p =>
+            string.Equals(p.ParentId, project.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+        var savedChildren = new List<Project>();
+        try
+        {
+            foreach (var child in children)
+            {
+                child.ParentId = parentId;
+                SaveProjectWithHistory(child);
+                savedChildren.Add(child);
+            }
+
+            Store.MoveProjectToTrash(project);
+        }
+        catch (Exception operationError)
+        {
+            var rollbackErrors = new List<Exception>();
+            foreach (var child in children)
+            {
+                child.ParentId = project.Id;
+            }
+
+            foreach (var child in savedChildren)
+            {
+                try
+                {
+                    SaveProjectWithHistory(child);
+                }
+                catch (Exception rollbackError)
+                {
+                    _pendingSaveProjects[child.Id] = child;
+                    rollbackErrors.Add(rollbackError);
+                }
+            }
+
+            var error = rollbackErrors.Count == 0
+                ? operationError
+                : new IOException(
+                    "Nie udało się przenieść projektu do kosza ani w pełni wycofać zmian dzieci.",
+                    new AggregateException([operationError, .. rollbackErrors]));
+            RecordSaveFailure(error);
+            RefreshVisible();
+            GraphChanged?.Invoke();
+            EditorChanged?.Invoke();
+            return;
+        }
+
+        Projects.Remove(project);
+        State.NodePositions.Remove(project.Id);
+        State.PinnedIds.RemoveAll(x => string.Equals(x, project.Id, StringComparison.OrdinalIgnoreCase));
+        State.RecentIds.RemoveAll(x => string.Equals(x, project.Id, StringComparison.OrdinalIgnoreCase));
+        if (string.Equals(_focusedProjectId, project.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _focusedProjectId = null;
+            State.FocusedProjectId = null;
+        }
+
+        if (string.Equals(_selectedProjectId, project.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedProjectId = null;
+        }
+
+        if (string.Equals(_selectedGraphId, project.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedGraphId = null;
+        }
+
+        IsEditorOpen = false;
+        var stateSaved = true;
+        try
+        {
+            SaveState();
+        }
+        catch (Exception ex)
+        {
+            stateSaved = false;
+            RecordSaveFailure(ex);
+        }
+        RefreshVisible();
+        GraphChanged?.Invoke();
+        EditorChanged?.Invoke();
+        if (stateSaved)
+        {
+            StatusText = project.IsFolder
+                ? $"Folder „{project.Name}” przeniesiono do kosza (dzieci przeniesiono wyżej)"
+                : $"Projekt „{project.Name}” przeniesiono do kosza (dzieci przeniesiono wyżej)";
+        }
+    }
+
+    public bool OpenWikiLink(string title)
+    {
+        var note = Notes.FirstOrDefault(n =>
+            string.Equals(n.Title, title, StringComparison.CurrentCultureIgnoreCase));
+        if (note is not null)
+        {
+            SelectNote(note, openEditor: true, focusGraph: true);
+            FocusNodeRequested?.Invoke(note.Id);
+            return true;
+        }
+
+        var project = Projects.FirstOrDefault(p =>
+            string.Equals(p.Name, title, StringComparison.CurrentCultureIgnoreCase) ||
+            string.Equals(p.Slug, title, StringComparison.OrdinalIgnoreCase));
+        if (project is not null)
+        {
+            SelectProject(project, openEditor: true, focusGraph: true);
+            FocusNodeRequested?.Invoke(project.Id);
+            return true;
+        }
+
+        StatusText = $"Nie znaleziono [[{title}]]";
+        return false;
+    }
+
+    private bool IsAncestor(string possibleAncestorId, string nodeId)
+    {
+        var current = Projects.FirstOrDefault(p => p.Id == nodeId);
+        var guard = 0;
+        while (current?.ParentId is not null && guard++ < 64)
+        {
+            if (string.Equals(current.ParentId, possibleAncestorId, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = Projects.FirstOrDefault(p => p.Id == current.ParentId);
+        }
+
+        return false;
+    }
+
+    private void TrackRecent(string id)
+    {
+        State.RecentIds.RemoveAll(x => string.Equals(x, id, StringComparison.OrdinalIgnoreCase));
+        State.RecentIds.Insert(0, id);
+        if (State.RecentIds.Count > 20)
+        {
+            State.RecentIds.RemoveRange(20, State.RecentIds.Count - 20);
+        }
+
+        TrySaveState();
+        RefreshPinnedAndRecent();
+    }
+
+    private void RefreshPinnedAndRecent()
+    {
+        PinnedItems.Clear();
+        foreach (var id in State.PinnedIds)
+        {
+            var item = ResolveSidebarItem(id);
+            if (item is not null)
+            {
+                PinnedItems.Add(item);
+            }
+        }
+
+        RecentItems.Clear();
+        foreach (var id in State.RecentIds)
+        {
+            var item = ResolveSidebarItem(id);
+            if (item is not null && RecentItems.Count < 8)
+            {
+                RecentItems.Add(item);
+            }
+        }
+    }
+
+    private SidebarItem? ResolveSidebarItem(string id)
+    {
+        var project = Projects.FirstOrDefault(p => p.Id == id);
+        if (project is not null)
+        {
+            var prefix = project.IsFolder ? "Folder · " : "Projekt · ";
+            return new SidebarItem
+            {
+                Id = project.Id,
+                Title = prefix + project.Name,
+                IsProject = true,
+                IsFolder = project.IsFolder
+            };
+        }
+
+        var note = Notes.FirstOrDefault(n => n.Id == id);
+        return note is null
+            ? null
+            : new SidebarItem { Id = note.Id, Title = note.Title, IsProject = false };
     }
 
     public Project? FocusedProject() =>
@@ -612,7 +1336,7 @@ public sealed class MainViewModel : ObservableObject
             var project = Projects.FirstOrDefault(p => p.Id == task.SourceId);
             if (project is not null)
             {
-                Store.SaveProject(project);
+                SaveProjectWithHistory(project);
             }
         }
         else
@@ -620,7 +1344,7 @@ public sealed class MainViewModel : ObservableObject
             var note = Notes.FirstOrDefault(n => n.Id == task.SourceId);
             if (note is not null)
             {
-                Store.SaveNote(note);
+                SaveNoteWithHistory(note);
             }
         }
     }
@@ -633,6 +1357,8 @@ public sealed class MainViewModel : ObservableObject
             VisibleProjects.Add(project);
         }
 
+        RebuildProjectTree();
+
         VisibleNotes.Clear();
         foreach (var note in Notes.Where(ShouldShowNoteInList))
         {
@@ -640,11 +1366,40 @@ public sealed class MainViewModel : ObservableObject
         }
 
         VisibleTasks.Clear();
-        foreach (var task in CollectOpenTasks(Notes, Projects))
+        foreach (var task in CollectOpenTasks(Notes.Where(ShouldShowNoteInList), Projects.Where(ShouldShowProjectInList)))
         {
             VisibleTasks.Add(task);
         }
+
+        RefreshPinnedAndRecent();
     }
+
+    private void RebuildProjectTree()
+    {
+        ProjectTree.Clear();
+        var visible = Projects.Where(ShouldShowProjectInList).ToList();
+        var byParent = visible.ToLookup(p => p.ParentId ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        ProjectTreeNode Build(Project project)
+        {
+            var node = new ProjectTreeNode { Project = project };
+            foreach (var child in SortTreeChildren(byParent[project.Id]))
+            {
+                node.Children.Add(Build(child));
+            }
+
+            return node;
+        }
+
+        foreach (var root in SortTreeChildren(byParent[string.Empty]))
+        {
+            ProjectTree.Add(Build(root));
+        }
+    }
+
+    private static IEnumerable<Project> SortTreeChildren(IEnumerable<Project> projects) =>
+        projects
+            .OrderBy(p => p.IsFolder ? 0 : 1)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase);
 
     private void RefreshRelated()
     {
@@ -675,11 +1430,6 @@ public sealed class MainViewModel : ObservableObject
 
     private bool ShouldShowProjectInList(Project project)
     {
-        if (!ShowArchived && project.IsArchived)
-        {
-            return false;
-        }
-
         return SearchService.Matches(SearchQuery, project) ||
                Notes.Any(n => LayoutService.NoteLinksTo(n, project) && SearchService.Matches(SearchQuery, n));
     }
@@ -704,15 +1454,16 @@ public sealed class MainViewModel : ObservableObject
     {
         foreach (var project in Projects)
         {
-            if (!ShowArchived && project.IsArchived)
-            {
-                continue;
-            }
-
             var focused = FocusedProject();
-            if (focused is not null && project.Id != focused.Id)
+            if (focused is not null)
             {
-                continue;
+                var inFocusSubtree = project.Id == focused.Id ||
+                                     IsAncestor(focused.Id, project.Id) ||
+                                     string.Equals(project.ParentId, focused.Id, StringComparison.OrdinalIgnoreCase);
+                if (!inFocusSubtree)
+                {
+                    continue;
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(SearchQuery) &&
@@ -739,15 +1490,6 @@ public sealed class MainViewModel : ObservableObject
             if (focused is not null && !LayoutService.NoteLinksTo(note, focused))
             {
                 continue;
-            }
-
-            if (focused is null && !ShowArchived)
-            {
-                var linked = Projects.Where(p => LayoutService.NoteLinksTo(note, p)).ToList();
-                if (linked.Count > 0 && linked.All(p => p.IsArchived))
-                {
-                    continue;
-                }
             }
 
             yield return note;
@@ -798,30 +1540,96 @@ public sealed class MainViewModel : ObservableObject
         _redo.Clear();
     }
 
-    private void ApplyProjectSlug(Project project)
+    private void SaveState() => _stateStore.Save(State);
+
+    private bool TrySaveState()
+    {
+        try
+        {
+            SaveState();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            RecordSaveFailure(ex);
+            return false;
+        }
+    }
+
+    private void SaveNoteWithHistory(Note note)
+    {
+        _revisionStore.CaptureExisting("Notes", note.Id, note.FilePath);
+        Store.SaveNote(note);
+    }
+
+    private void SaveProjectWithHistory(Project project)
     {
         var oldSlug = project.Slug;
         var desired = SlugHelper.FromName(project.Name);
         if (string.Equals(oldSlug, desired, StringComparison.OrdinalIgnoreCase))
         {
+            _revisionStore.CaptureExisting("Projects", project.Id, project.FilePath);
+            Store.SaveProject(project);
             return;
         }
 
-        var others = Projects.Where(p => p.Id != project.Id).Select(p => p.Slug);
-        var newSlug = SlugHelper.Unique(desired, others);
-        foreach (var note in Notes.Where(n => n.Tags.Any(t => string.Equals(t, oldSlug, StringComparison.OrdinalIgnoreCase))))
+        var newSlug = SlugHelper.Unique(
+            desired,
+            Projects.Where(other => other.Id != project.Id).Select(other => other.Slug));
+        var affected = Notes
+            .Where(note => note.Tags.Any(tag => string.Equals(tag, oldSlug, StringComparison.OrdinalIgnoreCase)))
+            .Select(note => (Note: note, Tags: note.Tags.ToList()))
+            .ToList();
+        var savedNotes = new List<Note>();
+
+        try
         {
-            note.Tags = note.Tags
-                .Select(t => string.Equals(t, oldSlug, StringComparison.OrdinalIgnoreCase) ? newSlug : t)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            Store.SaveNote(note);
+            foreach (var (note, _) in affected)
+            {
+                note.Tags = note.Tags
+                    .Select(tag => string.Equals(tag, oldSlug, StringComparison.OrdinalIgnoreCase) ? newSlug : tag)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                SaveNoteWithHistory(note);
+                savedNotes.Add(note);
+            }
+
+            project.Slug = newSlug;
+            _revisionStore.CaptureExisting("Projects", project.Id, project.FilePath);
+            Store.SaveProject(project);
         }
+        catch (Exception saveError)
+        {
+            project.Slug = oldSlug;
+            foreach (var (note, tags) in affected)
+            {
+                note.Tags = tags;
+            }
 
-        project.Slug = newSlug;
+            var rollbackErrors = new List<Exception>();
+            foreach (var note in savedNotes)
+            {
+                try
+                {
+                    SaveNoteWithHistory(note);
+                }
+                catch (Exception rollbackError)
+                {
+                    _pendingSaveNotes[note.Id] = note;
+                    rollbackErrors.Add(rollbackError);
+                }
+            }
+
+            if (rollbackErrors.Count == 0)
+            {
+                throw;
+            }
+
+            throw new IOException(
+                "Nie udało się zapisać zmiany nazwy projektu ani w pełni wycofać powiązań notatek.",
+                new AggregateException([saveError, .. rollbackErrors]));
+        }
     }
-
-    private void SaveState() => _stateStore.Save(State);
 
     private static string ApplicationThemeName()
     {

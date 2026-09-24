@@ -9,6 +9,11 @@
     <RootNamespace>MapaNotatek</RootNamespace>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <RuntimeIdentifiers>osx-arm64;osx-x64;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- Do not run Avalonia's build-time product telemetry task. The shipped app is offline. -->
+    <UsedAvaloniaProducts></UsedAvaloniaProducts>
+    <!-- Restore/build should not contact NuGet for vulnerability metadata. -->
+    <NuGetAudit>false</NuGetAudit>
+    <NoWarn>$(NoWarn);NU1900</NoWarn>
   </PropertyGroup>
 
   <!-- Applied only when publishing (dotnet publish / -p:PublishProfile). -->

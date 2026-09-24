@@ -25,17 +25,23 @@ jobs:
         run: dotnet restore MapaNotatek.sln
       - name: Build
         run: dotnet build MapaNotatek.sln -c Release --no-restore
-      - name: Publish
-        run: >
-          dotnet publish src/MapaNotatek/MapaNotatek.csproj
-          -c Release
-          -r ${{ matrix.rid }}
-          --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -o artifacts/${{ matrix.rid }}
+      - name: Storage, recovery and offline regression tests
+        run: dotnet run --project tests/MapaNotatek.StorageTests/MapaNotatek.StorageTests.csproj -c Release --no-build
+      - name: DOCX, PDF and offline HTML export tests
+        run: dotnet run --project tests/MapaNotatek.ExportTests/MapaNotatek.ExportTests.csproj -c Release --no-build
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x ./publish-macos.sh
+          ./publish-macos.sh ${{ matrix.rid }}
+      - name: Package Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./publish-windows.ps1 ${{ matrix.rid }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MapaNotatek-${{ matrix.rid }}
-          path: artifacts/${{ matrix.rid }}
+          path: |
+            artifacts/MapaNotatek-${{ matrix.rid }}.zip
+            artifacts/MapaNotatek-${{ matrix.rid }}.zip.sha256

@@ -13,7 +13,10 @@
                     Width="4000"
                     Height="4000"
                     Background="Transparent"
-                    PointerPressed="OnCanvasPressed" />
+                    PointerPressed="OnCanvasPressed"
+                    PointerMoved="OnCanvasMoved"
+                    PointerReleased="OnCanvasReleased"
+                    PointerCaptureLost="OnCanvasCaptureLost" />
         </LayoutTransformControl>
     </ScrollViewer>
 </UserControl>

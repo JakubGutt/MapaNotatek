@@ -25,16 +25,25 @@ if (-not $rid) {
 }
 
 $out = Join-Path $root "artifacts\$rid"
+$zip = Join-Path $root "artifacts\MapaNotatek-$rid.zip"
+$checksum = "$zip.sha256"
 Write-Host "SDK: $(dotnet --version)"
 Write-Host "Publish → $out (RID=$rid, self-contained)"
 
 if (Test-Path $out) {
     Remove-Item -Recurse -Force $out
 }
+if (Test-Path $zip) {
+    Remove-Item -Force $zip
+}
+if (Test-Path $checksum) {
+    Remove-Item -Force $checksum
+}
 
 dotnet publish $project `
   -c Release `
   -r $rid `
+  --no-restore `
   --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -42,6 +51,13 @@ dotnet publish $project `
 
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Copy-Item (Join-Path $root "docs\FIRST_RUN.md") (Join-Path $out "FIRST_RUN.md")
+Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLevel Optimal
+$hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+Set-Content -Path $checksum -Encoding ascii -Value "$hash  $(Split-Path -Leaf $zip)"
+
 Write-Host ""
 Write-Host "Gotowe: $out\MapaNotatek.exe"
+Write-Host "ZIP do przekazania: $zip"
+Write-Host "Suma SHA-256: $checksum"
 Write-Host "Uruchom: & '$out\MapaNotatek.exe'"

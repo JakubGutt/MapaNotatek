@@ -1,15 +1,47 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MapaNotatek.Views.SettingsDialog">
-    <ScrollViewer MaxHeight="480">
-        <StackPanel Spacing="12" Width="420">
-            <TextBlock Text="Folder danych" FontWeight="SemiBold" />
-            <TextBox x:Name="DataFolderBox" IsReadOnly="True" />
-            <Button Content="Zmień folder danych…" Click="OnChangeFolder" />
-            <TextBlock x:Name="ThemeText" />
-            <Button Content="Eksportuj kopię…" Click="OnExport" />
-            <TextBlock Text="Skróty klawiszowe" FontWeight="SemiBold" />
-            <ListBox x:Name="ShortcutsList" MaxHeight="240" />
+    <ScrollViewer MaxHeight="560">
+        <StackPanel x:Name="SettingsRoot" Spacing="14" Width="430">
+            <StackPanel Spacing="3">
+                <TextBlock Text="Dane lokalne" FontSize="20" FontWeight="SemiBold" />
+                <TextBlock Text="Każda biblioteka pozostaje wyłącznie na tym komputerze. Aplikacja nie loguje się, nie synchronizuje i nie łączy z internetem."
+                           Classes="subtitle"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Classes="surface" Padding="14">
+                <StackPanel Spacing="9">
+                    <TextBlock Text="AKTYWNA BIBLIOTEKA" Classes="eyebrow" />
+                    <TextBox x:Name="DataFolderBox" IsReadOnly="True" TextWrapping="Wrap" />
+                    <Button Content="Otwórz lub utwórz lokalną bibliotekę…"
+                            HorizontalAlignment="Left"
+                            Click="OnChangeFolder" />
+                    <TextBlock Text="Wybranie innego folderu nie przenosi obecnych danych. Najpierw wykonaj kopię, jeżeli chcesz je zachować."
+                               Classes="metadata"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="surface" Padding="14">
+                <StackPanel Spacing="9">
+                    <TextBlock Text="KOPIE I ODZYSKIWANIE" Classes="eyebrow" />
+                    <TextBlock Text="Kopia zawiera manifest i sumy kontrolne. Przywracanie jest możliwe tylko do nowego albo pustego folderu."
+                               Classes="subtitle"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Utwórz zweryfikowaną kopię…" Click="OnExport" />
+                        <Button Content="Przywróć kopię…" Click="OnRestore" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="ThemeText" Classes="metadata" />
+            <Button Content="Zapisz lokalny raport diagnostyczny…"
+                    HorizontalAlignment="Left"
+                    Click="OnExportDiagnostics" />
+            <TextBlock Text="Skróty klawiszowe" FontSize="17" FontWeight="SemiBold" />
+            <ListBox x:Name="ShortcutsList" MaxHeight="220" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>
