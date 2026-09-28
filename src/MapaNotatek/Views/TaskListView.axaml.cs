@@ -51,6 +51,14 @@ public partial class TaskListView : UserControl
         CompleteTask(task);
     }
 
+    private void OnTaskPeopleChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: OpenTask task } box && ViewModel is not null)
+        {
+            ViewModel.UpdateTaskPeople(task, box.Text);
+        }
+    }
+
     private void OnItemDoubleTapped(object? sender, TappedEventArgs e)
     {
         var task = TasksList.SelectedItem as OpenTask;

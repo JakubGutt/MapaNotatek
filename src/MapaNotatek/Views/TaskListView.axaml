@@ -91,6 +91,18 @@
                                                    Classes="metadata"
                                                    TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <TextBlock Text="OSOBY"
+                                                   Classes="eyebrow"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1"
+                                                 Text="{ReflectionBinding PeopleText, Mode=OneWay}"
+                                                 PlaceholderText="Przypisz osoby…"
+                                                 MinHeight="30"
+                                                 Padding="8,4"
+                                                 FontSize="12"
+                                                 TextChanged="OnTaskPeopleChanged" />
+                                    </Grid>
                                 </StackPanel>
                             </Grid>
                         </Border>

@@ -59,7 +59,7 @@ public static class FrontMatter
         TrimTrailingBlankLines(bodyLines);
         for (var lineIndex = 0; lineIndex < bodyLines.Count; lineIndex++)
         {
-            if (!TryReadChecklistLine(bodyLines[lineIndex], out var isDone, out var itemText))
+            if (!TryReadChecklistLine(bodyLines[lineIndex], out var isDone, out var itemText, out var people))
             {
                 continue;
             }
@@ -68,6 +68,7 @@ public static class FrontMatter
             {
                 IsDone = isDone,
                 Text = itemText,
+                People = people,
                 SourceLineIndex = lineIndex,
                 SourceLine = bodyLines[lineIndex]
             });
@@ -91,7 +92,8 @@ public static class FrontMatter
             archived: null,
             slug: null,
             parentId: null,
-            isFolder: false);
+            isFolder: false,
+            people: note.People);
         builder.Append("# ").AppendLine(note.Title);
         builder.AppendLine();
 
@@ -119,7 +121,8 @@ public static class FrontMatter
             archived: project.IsArchived,
             project.Slug,
             project.ParentId,
-            project.IsFolder);
+            project.IsFolder,
+            project.People);
         builder.Append("# ").AppendLine(project.Name);
         builder.AppendLine();
 
@@ -127,6 +130,38 @@ public static class FrontMatter
         if (!string.IsNullOrWhiteSpace(project.Description))
         {
             builder.AppendLine(project.Description.TrimEnd());
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    public static string WritePerson(Person person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        var builder = new StringBuilder();
+        builder.AppendLine("---");
+        builder.Append("id: ").AppendLine(person.Id);
+        builder.AppendLine("type: person");
+        builder.Append("slug: ").AppendLine(person.Slug);
+        if (!string.IsNullOrWhiteSpace(person.Role))
+        {
+            builder.Append("role: ").AppendLine(person.Role.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(person.AvatarPath))
+        {
+            builder.Append("avatar: ").AppendLine(person.AvatarPath.Trim());
+        }
+
+        builder.Append("created: ").AppendLine(person.Created.ToString("O", CultureInfo.InvariantCulture));
+        builder.Append("modified: ").AppendLine(person.Modified.ToString("O", CultureInfo.InvariantCulture));
+        builder.AppendLine("---");
+        builder.Append("# ").AppendLine(person.Name);
+        builder.AppendLine();
+        if (!string.IsNullOrWhiteSpace(person.Description))
+        {
+            builder.AppendLine(person.Description.TrimEnd());
             builder.AppendLine();
         }
 
@@ -203,7 +238,7 @@ public static class FrontMatter
                 lines.Add(string.Empty);
             }
 
-            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {item.Text}";
+            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People)}";
             lines.Add(newLine);
             var newIndex = lines.Count - 1;
             claimedLines.Add(newIndex);
@@ -258,7 +293,7 @@ public static class FrontMatter
         for (var index = 0; index < lines.Count; index++)
         {
             if (claimedLines.Contains(index) ||
-                !TryReadChecklistLine(lines[index], out _, out var existingText) ||
+                !TryReadChecklistLine(lines[index], out _, out var existingText, out _) ||
                 !string.Equals(existingText, text, StringComparison.Ordinal))
             {
                 continue;
@@ -275,27 +310,34 @@ public static class FrontMatter
         var match = ChecklistLine.Match(originalLine);
         if (!match.Success)
         {
-            return $"- [{(item.IsDone ? 'x' : ' ')}] {item.Text}";
+            return $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People)}";
         }
 
         return match.Groups["prefix"].Value +
                (item.IsDone ? "x" : " ") +
                match.Groups["suffix"].Value +
-               item.Text;
+               PersonTagService.AppendTaskMetadata(item.Text, item.People);
     }
 
-    private static bool TryReadChecklistLine(string line, out bool isDone, out string text)
+    private static bool TryReadChecklistLine(
+        string line,
+        out bool isDone,
+        out string text,
+        out List<string> people)
     {
         var match = ChecklistLine.Match(line);
         if (!match.Success)
         {
             isDone = false;
             text = string.Empty;
+            people = [];
             return false;
         }
 
         isDone = !string.Equals(match.Groups["state"].Value, " ", StringComparison.Ordinal);
-        text = match.Groups["text"].Value.TrimEnd();
+        var rawText = match.Groups["text"].Value.TrimEnd();
+        people = PersonTagService.ReadTaskPeople(rawText);
+        text = PersonTagService.StripTaskMetadata(rawText);
         return true;
     }
 
@@ -336,7 +378,8 @@ public static class FrontMatter
         bool? archived,
         string? slug,
         string? parentId,
-        bool isFolder)
+        bool isFolder,
+        IEnumerable<string>? people)
     {
         builder.AppendLine("---");
         builder.Append("id: ").AppendLine(id);
@@ -357,6 +400,11 @@ public static class FrontMatter
         }
 
         builder.Append("tags: ").AppendLine(tags);
+        var personTags = PersonTagService.Format(people);
+        if (!string.IsNullOrWhiteSpace(personTags))
+        {
+            builder.Append("people: ").AppendLine(personTags);
+        }
         if (archived.HasValue)
         {
             builder.Append("archived: ").AppendLine(archived.Value ? "true" : "false");

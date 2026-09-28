@@ -23,7 +23,7 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-ED-03 — gotowe:** użytkownik może zmienić typ bloku, dodać blok poniżej, przesunąć go i usunąć.
 - **FR-ED-04 — gotowe:** Enter dzieli zwykły blok w miejscu kursora; Backspace na początku scala akapity albo przywraca zwykły akapit.
 - **FR-ED-05 — gotowe:** dokument ma stałą maksymalną szerokość; bardzo długi wiersz zawija się i nie rozciąga okna.
-- **FR-ED-06 — gotowe:** użytkownik może przełączyć się na źródło Markdown lub podgląd bez utraty treści.
+- **FR-ED-06 — gotowe:** użytkownik może przełączyć się między edycją komórkową a sformatowanym podglądem bez utraty treści; Markdown pozostaje formatem pliku i eksportu.
 - **FR-ED-07 — częściowe:** pogrubienie, kursywa, przekreślenie i kod inline są dostępne; w trakcie edycji ich znaczniki mogą pozostać widoczne.
 - **FR-ED-08 — gotowe:** tabele umożliwiają edycję komórek oraz dodawanie/usuwanie wierszy i kolumn.
 - **FR-ED-09 — gotowe:** obrazy są wybierane z dysku, walidowane i kopiowane do lokalnego `Assets/<note-id>/`.
@@ -66,9 +66,17 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-EX-04 — gotowe:** tabele, nagłówki, listy, checklisty i bloki kodu zachowują użyteczną strukturę w eksportach.
 - **FR-EX-05 — planowane:** import pojedynczego DOCX/HTML tworzy raport elementów zachowanych i pominiętych.
 
+### FR-PE — osoby i zaangażowanie
+
+- **FR-PE-01 — gotowe:** użytkownik może utworzyć lokalny profil osoby z imieniem, rolą, opisem i opcjonalnym awatarem.
+- **FR-PE-02 — gotowe:** projekty, foldery, notatki i zadania mają osobne przypisanie osób, niezależne od zwykłych tagów.
+- **FR-PE-03 — gotowe:** panel osób pokazuje awatary jako węzły i łączy osoby współdzielące kontekst.
+- **FR-PE-04 — gotowe:** szczegóły osoby zbierają jej projekty, foldery, notatki oraz zadania i pozwalają otworzyć źródło relacji.
+- **FR-PE-05 — gotowe:** bez zdjęcia aplikacja pokazuje inicjały, a importowany awatar pozostaje lokalny.
+
 ### FR-DATA — zapis, historia i odzyskiwanie
 
-- **FR-DATA-01 — gotowe:** notatki i projekty są zapisywane atomowo jako lokalne pliki Markdown z metadanymi.
+- **FR-DATA-01 — gotowe:** notatki, projekty i profile osób są zapisywane atomowo jako lokalne pliki Markdown z metadanymi.
 - **FR-DATA-02 — gotowe:** przed podmianą istniejącego pliku powstaje `.bak`, a wcześniejsze wersje trafiają do ograniczonej historii.
 - **FR-DATA-03 — gotowe:** zewnętrzna zmiana pliku zatrzymuje zapis; szkic można zachować jako osobną kopię.
 - **FR-DATA-04 — gotowe:** usuwanie przenosi element do kosza z możliwością przywrócenia.

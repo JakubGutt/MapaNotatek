@@ -16,5 +16,6 @@ TestResults/
 *.pfx
 publish/
 artifacts/
+output/
 .DS_Store
 *.exe

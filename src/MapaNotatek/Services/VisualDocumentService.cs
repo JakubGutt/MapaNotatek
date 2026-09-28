@@ -116,11 +116,13 @@ public static class VisualDocumentService
             var checklist = Checklist.Match(line);
             if (checklist.Success)
             {
+                var rawText = checklist.Groups["text"].Value;
                 result.Add(new DocumentBlock
                 {
                     Kind = DocumentBlockKind.Checklist,
                     IsChecked = !string.Equals(checklist.Groups["state"].Value, " ", StringComparison.Ordinal),
-                    Text = checklist.Groups["text"].Value
+                    Text = PersonTagService.StripTaskMetadata(rawText),
+                    People = PersonTagService.ReadTaskPeople(rawText)
                 });
                 index++;
                 continue;
@@ -290,7 +292,8 @@ public static class VisualDocumentService
         DocumentBlockKind.Heading3 => "### " + block.Text.TrimEnd(),
         DocumentBlockKind.Bullet => "- " + block.Text.TrimEnd(),
         DocumentBlockKind.Numbered => "1. " + block.Text.TrimEnd(),
-        DocumentBlockKind.Checklist => $"- [{(block.IsChecked ? "x" : " ")}] {block.Text.TrimEnd()}",
+        DocumentBlockKind.Checklist =>
+            $"- [{(block.IsChecked ? "x" : " ")}] {PersonTagService.AppendTaskMetadata(block.Text.TrimEnd(), block.People)}",
         DocumentBlockKind.Quote => RenderPrefixedLines(block.Text, "> "),
         DocumentBlockKind.Code => $"```{block.Language.Trim()}\n{block.Text.TrimEnd()}\n```",
         DocumentBlockKind.Rule => "---",

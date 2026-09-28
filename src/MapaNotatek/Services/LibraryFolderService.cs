@@ -13,6 +13,7 @@ public static class LibraryFolderService
     {
         "Projects",
         "Notes",
+        "People",
         "Trash",
         "Assets",
         "History",

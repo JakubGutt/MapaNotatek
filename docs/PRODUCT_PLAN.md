@@ -12,7 +12,7 @@ Szczegółowe wymagania i kryteria odbioru znajdują się w [FUNCTIONAL_REQUIREM
 - akapity, nagłówki, listy, zadania, cytaty, kod, obrazy, tabele i separatory są osobnymi blokami;
 - bloki można zmieniać, wstawiać, przesuwać i usuwać, a Enter dzieli tekst na kolejne bloki;
 - tabele mają edycję komórek oraz dodawanie i usuwanie wierszy i kolumn;
-- Markdown pozostaje opcjonalnym widokiem źródłowym i formatem pliku;
+- Markdown pozostaje formatem pliku i eksportu, bez osobnego widoku źródłowego w interfejsie;
 - długi nieprzerwany wiersz zawija się i nie poszerza kartki dokumentu;
 - spis treści jest budowany z nagłówków i prowadzi do wybranego miejsca;
 - dostępne są wyszukiwanie i zamiana, tryb skupienia, podgląd, licznik oraz autosave.
@@ -29,6 +29,7 @@ Szczegółowe wymagania i kryteria odbioru znajdują się w [FUNCTIONAL_REQUIREM
 ### Znajdowanie i organizacja
 
 - projekty i zagnieżdżone foldery, tagi, checklisty, zadania zbiorcze, przypięte i ostatnie elementy;
+- panel osób z lokalnymi awatarami i osobnymi przypisaniami do projektów, folderów, notatek oraz zadań;
 - wyszukiwanie zwykłe, pełne frazy, wykluczenia i filtry pól;
 - kosz z przywracaniem notatek oraz projektów;
 - graf projektów, notatek i wikilinków jako widok pomocniczy.

@@ -1,18 +1,13 @@
 namespace MapaNotatek.Models;
 
-public sealed class Project
+public sealed class Person
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public List<string> People { get; set; } = [];
-    public List<ChecklistItem> Checklist { get; set; } = [];
-    public bool IsArchived { get; set; }
-    /// <summary>Parent project/folder id; null/empty = root.</summary>
-    public string? ParentId { get; set; }
-    /// <summary>Folder container (no checklist emphasis); still stored as type project.</summary>
-    public bool IsFolder { get; set; }
+    public string AvatarPath { get; set; } = string.Empty;
     public DateTimeOffset Created { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset Modified { get; set; } = DateTimeOffset.Now;
     public string FilePath { get; set; } = string.Empty;

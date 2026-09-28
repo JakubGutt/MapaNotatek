@@ -4,6 +4,7 @@ public sealed class ChecklistItem
 {
     public string Text { get; set; } = string.Empty;
     public bool IsDone { get; set; }
+    public List<string> People { get; set; } = [];
 
     // Runtime-only origin metadata used to keep an indexed Markdown task in its
     // original body position. It is deliberately not part of the persisted model.

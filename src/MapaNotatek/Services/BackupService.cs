@@ -10,6 +10,7 @@ public static class BackupService
     [
         "Projects",
         "Notes",
+        "People",
         "Trash",
         "Assets",
         "History",

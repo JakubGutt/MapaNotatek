@@ -17,6 +17,55 @@
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Opacity" Value="0.62" />
         </Style>
+        <Style Selector="Border.EditorCell">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="BoxShadow" Value="0 3 12 0 #12000000" />
+        </Style>
+        <Style Selector="Border.EditorCell:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}" />
+            <Setter Property="BoxShadow" Value="0 6 18 0 #1C000000" />
+        </Style>
+        <Style Selector="Button.CellAction">
+            <Setter Property="MinWidth" Value="28" />
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="Padding" Value="5,2" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.AddCellButton">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Border.ProjectCard">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="24" />
+        </Style>
+        <Style Selector="TextBlock.ProjectSectionTitle">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Border.ProjectCount">
+            <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="8,4" />
+        </Style>
+        <Style Selector="ListBox.ProjectList">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox.ProjectList ListBoxItem">
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
     </UserControl.Styles>
 
     <Grid>
@@ -33,59 +82,173 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="ProjectPanel" IsVisible="False" RowDefinitions="Auto,*">
+        <Grid x:Name="ProjectPanel"
+              IsVisible="False"
+              RowDefinitions="Auto,*"
+              Background="{DynamicResource WorkspaceBackgroundBrush}"
+              SizeChanged="OnProjectPanelSizeChanged">
             <Border Grid.Row="0"
-                    Padding="18,12"
+                    Padding="24,14"
                     BorderThickness="0,0,0,1"
-                    BorderBrush="{DynamicResource BorderSubtleBrush}">
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    Background="{DynamicResource SurfaceBrush}">
                 <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel>
-                        <TextBlock x:Name="ProjectKindLabel" Text="Projekt" FontSize="11" Opacity="0.6" />
-                        <TextBlock Text="Przestrzeń projektu" FontSize="18" FontWeight="SemiBold" />
+                    <StackPanel Spacing="2">
+                        <TextBlock x:Name="ProjectKindLabel" Text="PROJEKT" Classes="eyebrow" />
+                        <TextBlock Text="Przestrzeń projektu" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock x:Name="ProjectHeaderContextText"
+                                   Text="Opis, zadania i materiały w jednym miejscu"
+                                   Classes="metadata" />
                     </StackPanel>
                     <Button Grid.Column="1"
-                            Content="Przenieś do kosza…"
+                            Content="Działania ▾"
                             VerticalAlignment="Center"
-                            Click="OnDeleteProject" />
+                            ToolTip.Tip="Więcej działań dotyczących projektu">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Przenieś do kosza…" Click="OnDeleteProject" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                 </Grid>
             </Border>
-            <ScrollViewer Grid.Row="1">
-                <Border MaxWidth="900"
-                        HorizontalAlignment="Center"
-                        Margin="28"
-                        Padding="34"
-                        CornerRadius="12"
-                        Background="{DynamicResource SurfaceBrush}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Classes="MetaLabel" Text="NAZWA" />
-                        <TextBox x:Name="ProjectNameBox"
-                                 PlaceholderText="Nazwa"
-                                 FontSize="28"
-                                 FontWeight="SemiBold"
-                                 TextChanged="OnProjectChanged" />
-                        <TextBlock Classes="MetaLabel" Text="OPIS" Margin="0,8,0,0" />
-                        <TextBox x:Name="ProjectDescriptionBox"
-                                 PlaceholderText="Cel, kontekst i najważniejsze informacje o projekcie…"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="140"
-                                 TextChanged="OnProjectChanged" />
-
-                        <StackPanel x:Name="ProjectChecklistSection" Spacing="8" Margin="0,12,0,0">
-                            <TextBlock Text="Checklista projektu" FontSize="18" FontWeight="SemiBold" />
-                            <StackPanel x:Name="ProjectChecklistHost" Spacing="5" />
-                            <Button Content="+ Dodaj zadanie" Click="OnAddProjectTask" HorizontalAlignment="Left" />
+            <ScrollViewer Grid.Row="1"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <Grid x:Name="ProjectWorkspaceGrid"
+                      MaxWidth="1240"
+                      HorizontalAlignment="Stretch"
+                      Margin="28,24,28,32"
+                      ColumnDefinitions="3*,2*"
+                      RowDefinitions="Auto,Auto"
+                      ColumnSpacing="18"
+                      RowSpacing="18">
+                    <Border x:Name="ProjectOverviewCard"
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Classes="ProjectCard">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="MetaLabel" Text="O PROJEKCIE" />
+                            <TextBox x:Name="ProjectNameBox"
+                                     PlaceholderText="Nazwa projektu"
+                                     FontSize="30"
+                                     FontWeight="SemiBold"
+                                     Padding="0,3,0,8"
+                                     BorderThickness="0,0,0,1"
+                                     Background="Transparent"
+                                     TextChanged="OnProjectChanged" />
+                            <TextBlock Classes="MetaLabel" Text="CEL I KONTEKST" Margin="0,4,0,0" />
+                            <TextBox x:Name="ProjectDescriptionBox"
+                                     PlaceholderText="Opisz cel, zakres i najważniejsze informacje o projekcie…"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="170"
+                                     VerticalContentAlignment="Top"
+                                     TextChanged="OnProjectChanged" />
+                            <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,4,0,0" />
+                            <TextBox x:Name="ProjectPeopleBox"
+                                     PlaceholderText="anna-kowalska, piotr-nowak"
+                                     ToolTip.Tip="Wpisz nazwy lub identyfikatory osób, rozdzielone przecinkami"
+                                     TextChanged="OnProjectChanged" />
+                            <TextBlock Text="Osobne przypisanie osób — niezależne od tagów projektu."
+                                       Classes="metadata"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="ProjectMetaText"
+                                       Classes="metadata"
+                                       TextWrapping="Wrap" />
                         </StackPanel>
+                    </Border>
 
-                        <TextBlock Text="Powiązane notatki" FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
-                        <ListBox x:Name="RelatedNotesList" MaxHeight="220" DoubleTapped="OnRelatedNoteDoubleTapped" />
-
-                        <StackPanel x:Name="ProjectTasksSection" Spacing="8" Margin="0,12,0,0">
-                            <TextBlock Text="Otwarte zadania z notatek" FontSize="18" FontWeight="SemiBold" />
-                            <StackPanel x:Name="ProjectOpenTasksHost" Spacing="5" />
+                    <Border x:Name="ProjectChecklistSection"
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Classes="ProjectCard">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="Plan działania" Classes="ProjectSectionTitle" />
+                                    <TextBlock Text="Zadania należące bezpośrednio do projektu."
+                                               Classes="metadata"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="+ Dodaj zadanie"
+                                        VerticalAlignment="Center"
+                                        Click="OnAddProjectTask" />
+                            </Grid>
+                            <Border Classes="ProjectCount" HorizontalAlignment="Left">
+                                <TextBlock x:Name="ProjectChecklistCountText" Classes="metadata" />
+                            </Border>
+                            <TextBlock x:Name="ProjectChecklistEmptyText"
+                                       Text="Nie ma jeszcze zadań projektu. Dodaj pierwszy konkretny krok."
+                                       Classes="subtitle"
+                                       TextWrapping="Wrap"
+                                       IsVisible="False" />
+                            <StackPanel x:Name="ProjectChecklistHost" Spacing="7" />
                         </StackPanel>
-                    </StackPanel>
-                </Border>
+                    </Border>
+
+                    <Border x:Name="ProjectNotesSection"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            Classes="ProjectCard">
+                        <StackPanel Spacing="12">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="Powiązane notatki" Classes="ProjectSectionTitle" />
+                                    <TextBlock Text="Materiały oznaczone tagiem projektu."
+                                               Classes="metadata"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Classes="ProjectCount" VerticalAlignment="Top">
+                                    <TextBlock x:Name="ProjectNotesCountText" Classes="metadata" />
+                                </Border>
+                            </Grid>
+                            <TextBlock x:Name="ProjectNotesEmptyText"
+                                       Text="Brak powiązanych notatek. Dodaj tag projektu do notatki, aby pojawiła się tutaj."
+                                       Classes="subtitle"
+                                       TextWrapping="Wrap"
+                                       IsVisible="False" />
+                            <Button Content="+ Nowa notatka w projekcie"
+                                    HorizontalAlignment="Left"
+                                    Click="OnNewProjectNote" />
+                            <ListBox x:Name="RelatedNotesList"
+                                     Classes="ProjectList"
+                                     MinHeight="120"
+                                     MaxHeight="280"
+                                     DoubleTapped="OnRelatedNoteDoubleTapped" />
+                            <TextBlock x:Name="ProjectNotesHintText"
+                                       Text="Kliknij dwukrotnie, aby otworzyć notatkę."
+                                       Classes="metadata"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="ProjectTasksSection"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Classes="ProjectCard">
+                        <StackPanel Spacing="12">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="Zadania z notatek" Classes="ProjectSectionTitle" />
+                                    <TextBlock Text="Otwarte pozycje z całej dokumentacji projektu."
+                                               Classes="metadata"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Classes="ProjectCount" VerticalAlignment="Top">
+                                    <TextBlock x:Name="ProjectTasksCountText" Classes="metadata" />
+                                </Border>
+                            </Grid>
+                            <TextBlock x:Name="ProjectTasksEmptyText"
+                                       Text="W powiązanych notatkach nie ma otwartych zadań."
+                                       Classes="subtitle"
+                                       TextWrapping="Wrap"
+                                       IsVisible="False" />
+                            <StackPanel x:Name="ProjectOpenTasksHost" Spacing="8" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </ScrollViewer>
         </Grid>
 
@@ -97,7 +260,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="1">
                         <TextBlock Text="NOTATKA" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
-                        <TextBlock Text="Edytor wizualny • lokalnie" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock Text="Edytor komórkowy • lokalnie" FontSize="15" FontWeight="SemiBold" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
                         <Button Classes="HeaderAction"
@@ -115,6 +278,7 @@
                         <Button x:Name="MetadataToggleButton"
                                 Classes="HeaderAction"
                                 Content="Ukryj szczegóły"
+                                ToolTip.Tip="Pokaż lub ukryj prawy panel szczegółów notatki"
                                 Click="OnToggleMetadata" />
                         <Button x:Name="FocusModeButton"
                                 Classes="HeaderAction"
@@ -138,10 +302,31 @@
                     <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="FormatToolbar" Orientation="Horizontal" Spacing="3">
+                            <ComboBox x:Name="EditorFontPicker"
+                                      Width="120"
+                                      MinHeight="32"
+                                      SelectedIndex="0"
+                                      ToolTip.Tip="Krój pisma edytora. Plik pozostaje przenośnym Markdownem."
+                                      SelectionChanged="OnEditorFontChanged">
+                                <ComboBoxItem Content="Inter" />
+                                <ComboBoxItem Content="Szeryfowa" />
+                                <ComboBoxItem Content="Monospace" />
+                            </ComboBox>
+                            <ComboBox x:Name="EditorFontSizePicker"
+                                      Width="72"
+                                      MinHeight="32"
+                                      SelectedIndex="1"
+                                      ToolTip.Tip="Rozmiar tekstu w edytorze"
+                                      SelectionChanged="OnEditorFontSizeChanged">
+                                <ComboBoxItem Content="14" />
+                                <ComboBoxItem Content="16" />
+                                <ComboBoxItem Content="18" />
+                            </ComboBox>
+                            <Border Width="1" Margin="5,4" Background="{DynamicResource BorderStrongBrush}" Opacity="0.35" />
                             <Button Classes="FormatButton" Content="B" FontWeight="Bold"
-                                    ToolTip.Tip="Pogrubienie (⌘/Ctrl+B)" Click="OnFormatBold" />
+                                    ToolTip.Tip="Pogrub zaznaczony tekst (⌘/Ctrl+B)" Click="OnFormatBold" />
                             <Button Classes="FormatButton" Content="I" FontStyle="Italic"
-                                    ToolTip.Tip="Kursywa (⌘/Ctrl+I)" Click="OnFormatItalic" />
+                                    ToolTip.Tip="Zastosuj kursywę do zaznaczenia (⌘/Ctrl+I)" Click="OnFormatItalic" />
                             <Button Classes="FormatButton" Content="S̶"
                                     ToolTip.Tip="Przekreślenie" Click="OnFormatStrike" />
                             <Button Classes="FormatButton" Content="Kod"
@@ -165,14 +350,9 @@
                     </ScrollViewer>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" Margin="12,0,0,0">
                         <RadioButton x:Name="EditModeRadio"
-                                     Content="Wizualnie"
+                                     Content="Komórki"
                                      GroupName="NoteMode"
                                      IsChecked="True"
-                                     IsCheckedChanged="OnNoteModeChanged"
-                                     VerticalAlignment="Center" />
-                        <RadioButton x:Name="SourceModeRadio"
-                                     Content="Markdown"
-                                     GroupName="NoteMode"
                                      IsCheckedChanged="OnNoteModeChanged"
                                      VerticalAlignment="Center" />
                         <RadioButton x:Name="PreviewModeRadio"
@@ -257,7 +437,8 @@
                             <TextBox x:Name="NoteBodyBox"
                                      Grid.Row="1"
                                      IsVisible="False"
-                                     PlaceholderText="Widok źródłowy Markdown. Powiązania twórz jako [[wikilinki]]."
+                                     IsHitTestVisible="False"
+                                     Focusable="False"
                                      AcceptsReturn="True"
                                      AcceptsTab="True"
                                      TextWrapping="Wrap"
@@ -268,14 +449,37 @@
                                      BorderThickness="0"
                                      Background="Transparent"
                                      Padding="0"
-                                     TextChanged="OnNoteChanged"
-                                     KeyDown="OnBodyKeyDown" />
+                                     TextChanged="OnNoteChanged" />
 
                             <ScrollViewer x:Name="VisualEditorScroll"
                                           Grid.Row="1"
                                           HorizontalScrollBarVisibility="Disabled"
                                           VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="VisualBlocksHost" Spacing="4" />
+                                <StackPanel Spacing="12">
+                                    <StackPanel x:Name="VisualBlocksHost" Spacing="10" />
+                                    <Border Padding="12,10"
+                                            Margin="0,3,0,12"
+                                            CornerRadius="10"
+                                            BorderThickness="1"
+                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                            Background="{DynamicResource SurfaceMutedBrush}">
+                                        <StackPanel Spacing="7">
+                                            <TextBlock Classes="MetaLabel" Text="DODAJ KOMÓRKĘ" />
+                                            <WrapPanel Orientation="Horizontal">
+                                                <Button Classes="AddCellButton" Content="+ Tekst" Margin="0,0,5,5" Click="OnAddParagraphBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Nagłówek" Margin="0,0,5,5" Click="OnAddHeadingBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Lista" Margin="0,0,5,5" Click="OnAddListBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Zadanie" Margin="0,0,5,5" Click="OnAddChecklistBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Kod" Margin="0,0,5,5" Click="OnAddCodeBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Tabela" Margin="0,0,5,5" Click="OnAddTableBlock" />
+                                                <Button Classes="AddCellButton" Content="+ Obraz" Margin="0,0,5,5" Click="OnInsertImage" />
+                                            </WrapPanel>
+                                            <TextBlock Text="Każda komórka jest częścią tej samej notatki i zapisuje się automatycznie w jednym pliku."
+                                                       Classes="metadata"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
                             </ScrollViewer>
 
                             <Border x:Name="PreviewHost"
@@ -305,6 +509,16 @@
                                      PlaceholderText="projekt-a, klient-x"
                                      TextChanged="OnNoteChanged" />
                             <TextBlock Text="Tag projektu łączy notatkę z jego widokiem i grafem."
+                                       FontSize="11"
+                                       Opacity="0.55"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,10,0,0" />
+                            <TextBox x:Name="NotePeopleBox"
+                                     PlaceholderText="anna-kowalska, piotr-nowak"
+                                     ToolTip.Tip="Wpisz nazwy lub identyfikatory osób, rozdzielone przecinkami"
+                                     TextChanged="OnNoteChanged" />
+                            <TextBlock Text="Te przypisania zasilają panel Osoby i nie mieszają się ze zwykłymi tagami."
                                        FontSize="11"
                                        Opacity="0.55"
                                        TextWrapping="Wrap" />
@@ -368,7 +582,7 @@
                     <TextBlock Grid.Column="1"
                                FontSize="11"
                                Opacity="0.5"
-                               Text="Tryb wizualny • przenośny zapis lokalny • zero internetu"
+                               Text="Komórki dokumentu • jeden przenośny plik • zero internetu"
                                TextTrimming="CharacterEllipsis" />
                     <TextBlock x:Name="EditorSaveStatusText"
                                Grid.Column="2"

@@ -3,20 +3,189 @@
              x:Class="MapaNotatek.Views.GraphView"
              Focusable="True"
              KeyDown="OnKeyDown">
-    <ScrollViewer x:Name="GraphScroll"
-                  HorizontalScrollBarVisibility="Auto"
-                  VerticalScrollBarVisibility="Auto"
-                  Background="Transparent"
-                  PointerWheelChanged="OnWheel">
-        <LayoutTransformControl x:Name="ZoomHost">
-            <Canvas x:Name="GraphCanvas"
-                    Width="4000"
-                    Height="4000"
-                    Background="Transparent"
-                    PointerPressed="OnCanvasPressed"
-                    PointerMoved="OnCanvasMoved"
-                    PointerReleased="OnCanvasReleased"
-                    PointerCaptureLost="OnCanvasCaptureLost" />
-        </LayoutTransformControl>
-    </ScrollViewer>
+    <UserControl.Styles>
+        <Style Selector="Border.graph-node">
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="13" />
+            <Setter Property="BoxShadow" Value="0 5 16 0 #18000000" />
+            <Setter Property="Padding" Value="11,9" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Border.graph-node:pointerover">
+            <Setter Property="BoxShadow" Value="0 9 24 0 #2A000000" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Border.graph-node.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="3" />
+            <Setter Property="BoxShadow" Value="0 0 0 4 #282867D6, 0 12 28 0 #30000000" />
+        </Style>
+        <Style Selector="Border.graph-project">
+            <Setter Property="Background" Value="#285FBF" />
+            <Setter Property="BorderBrush" Value="#79A7F6" />
+        </Style>
+        <Style Selector="Border.graph-folder">
+            <Setter Property="Background" Value="#087F75" />
+            <Setter Property="BorderBrush" Value="#5EEAD4" />
+            <Setter Property="BoxShadow" Value="0 7 20 0 #26087F75" />
+        </Style>
+        <Style Selector="Border.graph-note">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}" />
+        </Style>
+        <Style Selector="Border.graph-project TextBlock.graph-title, Border.graph-folder TextBlock.graph-title">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Border.graph-project TextBlock.graph-meta">
+            <Setter Property="Foreground" Value="#D9E7FF" />
+        </Style>
+        <Style Selector="Border.graph-folder TextBlock.graph-meta">
+            <Setter Property="Foreground" Value="#CCFBF1" />
+        </Style>
+        <Style Selector="Border.graph-note TextBlock.graph-title">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="Border.graph-note TextBlock.graph-meta">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.graph-title">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.graph-meta">
+            <Setter Property="FontSize" Value="10.5" />
+        </Style>
+        <Style Selector="Button.graph-control">
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid Background="{DynamicResource WorkspaceBackgroundBrush}">
+        <ScrollViewer x:Name="GraphScroll"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      Background="Transparent"
+                      PointerWheelChanged="OnWheel">
+            <LayoutTransformControl x:Name="ZoomHost">
+                <Canvas x:Name="GraphCanvas"
+                        Width="4000"
+                        Height="4000"
+                        Background="Transparent"
+                        PointerPressed="OnCanvasPressed"
+                        PointerMoved="OnCanvasMoved"
+                        PointerReleased="OnCanvasReleased"
+                        PointerCaptureLost="OnCanvasCaptureLost" />
+            </LayoutTransformControl>
+        </ScrollViewer>
+
+        <Border Classes="surface"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Margin="18"
+                Padding="14,11"
+                MinWidth="288"
+                CornerRadius="12"
+                BoxShadow="0 8 24 0 #18000000">
+            <StackPanel Spacing="7">
+                <TextBlock Classes="eyebrow" Text="MAPA WIEDZY" />
+                <TextBlock x:Name="GraphSummaryText"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Text="0 projektów · 0 notatek · 0 relacji" />
+                <TextBlock Classes="metadata"
+                           Margin="0,3,0,0"
+                           Text="ZAKRES GRAFU" />
+                <ComboBox x:Name="GraphProjectFilter"
+                          MinWidth="260"
+                          MinHeight="34"
+                          MaxDropDownHeight="360"
+                          ToolTip.Tip="Pokaż wszystkie dane albo tylko jeden projekt i jego zawartość"
+                          SelectionChanged="OnGraphProjectFilterChanged" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#285FBF" />
+                        <TextBlock Classes="metadata" Text="projekt" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#087F75" />
+                        <TextBlock Classes="metadata" Text="folder" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#A855F7" />
+                        <TextBlock Classes="metadata" Text="[[link]]" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="surface"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="18"
+                Padding="4"
+                CornerRadius="10"
+                BoxShadow="0 8 24 0 #18000000">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="graph-control"
+                        Content="−"
+                        FontSize="18"
+                        ToolTip.Tip="Pomniejsz"
+                        Click="OnZoomOutClick" />
+                <Button x:Name="GraphZoomText"
+                        Classes="graph-control"
+                        MinWidth="54"
+                        Content="100%"
+                        ToolTip.Tip="Przywróć 100%"
+                        Click="OnZoomResetClick" />
+                <Button Classes="graph-control"
+                        Content="+"
+                        FontSize="17"
+                        ToolTip.Tip="Powiększ"
+                        Click="OnZoomInClick" />
+                <Border Width="1"
+                        Height="20"
+                        Margin="4,0"
+                        Background="{DynamicResource BorderSubtleBrush}" />
+                <Button Classes="graph-control"
+                        Content="Dopasuj"
+                        ToolTip.Tip="Pokaż wszystkie elementy"
+                        Click="OnFitGraphClick" />
+            </StackPanel>
+        </Border>
+
+        <Border HorizontalAlignment="Left"
+                VerticalAlignment="Bottom"
+                Margin="18"
+                Padding="10,6"
+                CornerRadius="8"
+                Background="{DynamicResource SurfaceMutedBrush}"
+                IsHitTestVisible="False">
+            <TextBlock Classes="metadata"
+                       Text="Kliknij, aby zbadać  •  podwójne kliknięcie otwiera  •  przeciągnij tło, aby przesunąć  •  rolka zmienia skalę" />
+        </Border>
+
+        <Border x:Name="GraphSelectionCard"
+                Classes="surface"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="18"
+                Padding="13,10"
+                MinWidth="210"
+                MaxWidth="320"
+                CornerRadius="11"
+                BoxShadow="0 8 24 0 #18000000"
+                IsHitTestVisible="False"
+                IsVisible="False">
+            <StackPanel Spacing="3">
+                <TextBlock x:Name="GraphSelectionKind" Classes="eyebrow" Text="NOTATKA" />
+                <TextBlock x:Name="GraphSelectionTitle"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="GraphSelectionMeta" Classes="metadata" />
+            </StackPanel>
+        </Border>
+    </Grid>
 </UserControl>

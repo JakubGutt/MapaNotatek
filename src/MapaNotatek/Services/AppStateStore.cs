@@ -157,6 +157,16 @@ public sealed class AppStateStore
             state.Zoom = 1;
         }
 
+        state.EditorFont = state.EditorFont is "Inter" or "Szeryfowa" or "Monospace"
+            ? state.EditorFont
+            : "Inter";
+        if (state.EditorFontSize is < 14 or > 18 ||
+            double.IsNaN(state.EditorFontSize) ||
+            double.IsInfinity(state.EditorFontSize))
+        {
+            state.EditorFontSize = 16;
+        }
+
         return state;
     }
 

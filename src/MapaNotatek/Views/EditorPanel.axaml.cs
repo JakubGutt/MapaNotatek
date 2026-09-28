@@ -27,6 +27,11 @@ public partial class EditorPanel : UserControl
     private readonly Dictionary<string, TextBox> _visualEditors = new(StringComparer.Ordinal);
     private TextBox? _activeVisualEditor;
     private DocumentBlock? _activeVisualBlock;
+    private RememberedSelection? _rememberedSelection;
+    private string _editorFontName = "Inter";
+    private double _editorBodyFontSize = 16;
+    private bool _appearanceLoaded;
+    private bool? _projectCompactLayout;
 
     public EditorPanel()
     {
@@ -36,6 +41,8 @@ public partial class EditorPanel : UserControl
     public MainViewModel? ViewModel { get; set; }
 
     public event Action<Project>? DeleteProjectRequested;
+
+    public event Action? NewProjectNoteRequested;
 
     public event Action<bool>? FocusModeChanged;
 
@@ -48,6 +55,7 @@ public partial class EditorPanel : UserControl
             return;
         }
 
+        _metadataVisible = ViewModel.State.EditorDetailsVisible;
         _suppress = true;
         EmptyPanel.IsVisible = false;
         ProjectPanel.IsVisible = false;
@@ -64,30 +72,51 @@ public partial class EditorPanel : UserControl
         {
             ProjectPanel.IsVisible = true;
             ProjectKindLabel.Text = project.IsFolder ? "FOLDER" : "PROJEKT";
+            ProjectHeaderContextText.Text = project.IsFolder
+                ? "Zawartość folderu i powiązane materiały"
+                : "Opis, zadania i materiały w jednym miejscu";
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
+            ProjectPeopleBox.Text = PersonTagService.Format(project.People);
+            ProjectMetaText.Text = $"Utworzono {project.Created:g}  •  Zmieniono {project.Modified:g}";
             ProjectChecklistSection.IsVisible = !project.IsFolder;
             ProjectTasksSection.IsVisible = !project.IsFolder;
             if (!project.IsFolder)
             {
+                Action checklistChanged = () =>
+                {
+                    ViewModel.ScheduleSaveProject(project);
+                    UpdateProjectChecklistSummary(project);
+                };
                 FillChecklist(
                     ProjectChecklistHost,
                     project.Checklist,
-                    () => ViewModel.ScheduleSaveProject(project),
-                    () => AddChecklistItem(project.Checklist, () => ViewModel.ScheduleSaveProject(project), ProjectChecklistHost));
+                    checklistChanged,
+                    () => AddChecklistItem(project.Checklist, checklistChanged, ProjectChecklistHost));
+                UpdateProjectChecklistSummary(project);
             }
 
-            RelatedNotesList.ItemsSource = ViewModel.RelatedNotes.Select(n => n.Title).ToList();
+            var relatedNoteTitles = ViewModel.RelatedNotes.Select(n => n.Title).ToList();
+            RelatedNotesList.ItemsSource = relatedNoteTitles;
+            ProjectNotesCountText.Text = FormatPolishCount(relatedNoteTitles.Count, "notatka", "notatki", "notatek");
+            RelatedNotesList.IsVisible = relatedNoteTitles.Count > 0;
+            ProjectNotesHintText.IsVisible = relatedNoteTitles.Count > 0;
+            ProjectNotesEmptyText.IsVisible = relatedNoteTitles.Count == 0;
 
             ProjectOpenTasksHost.Children.Clear();
             foreach (var task in ViewModel.ProjectNoteTasks)
             {
                 ProjectOpenTasksHost.Children.Add(CreateOpenTaskRow(task));
             }
+
+            var taskCount = ViewModel.ProjectNoteTasks.Count;
+            ProjectTasksCountText.Text = FormatPolishCount(taskCount, "zadanie", "zadania", "zadań");
+            ProjectTasksEmptyText.IsVisible = taskCount == 0;
         }
         else if (ViewModel.SelectedNote is { } note)
         {
             NotePanel.IsVisible = true;
+            LoadEditorAppearance();
             if (!string.Equals(_findNoteId, note.Id, StringComparison.Ordinal))
             {
                 FindPanel.IsVisible = false;
@@ -100,6 +129,7 @@ public partial class EditorPanel : UserControl
             NoteBodyBox.Text = note.Body;
             LoadVisualDocument(note, force: !string.Equals(_visualNoteId, note.Id, StringComparison.Ordinal));
             NoteTagsBox.Text = string.Join(", ", note.Tags);
+            NotePeopleBox.Text = PersonTagService.Format(note.People);
             NoteDatesText.Text = $"Utworzono: {note.Created:g}\nZmieniono: {note.Modified:g}";
             FillChecklist(
                 NoteChecklistHost,
@@ -143,7 +173,7 @@ public partial class EditorPanel : UserControl
             return;
         }
 
-        SourceModeRadio.IsChecked = true;
+        EditModeRadio.IsChecked = true;
         FindPanel.IsVisible = true;
         UpdateFindCount();
         Dispatcher.UIThread.Post(() =>
@@ -156,14 +186,7 @@ public partial class EditorPanel : UserControl
     public void CloseFindPanel()
     {
         FindPanel.IsVisible = false;
-        if (EditModeRadio.IsChecked == true)
-        {
-            (_activeVisualEditor ?? _visualEditors.Values.FirstOrDefault())?.Focus();
-        }
-        else
-        {
-            NoteBodyBox.Focus();
-        }
+        (_activeVisualEditor ?? _visualEditors.Values.FirstOrDefault())?.Focus();
     }
 
     private void OnProjectChanged(object? sender, TextChangedEventArgs e)
@@ -175,7 +198,56 @@ public partial class EditorPanel : UserControl
 
         project.Name = ProjectNameBox.Text ?? string.Empty;
         project.Description = ProjectDescriptionBox.Text ?? string.Empty;
+        project.People = PersonTagService.Parse(ProjectPeopleBox.Text);
         ViewModel.ScheduleSaveProject(project);
+    }
+
+    private void OnProjectPanelSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 820;
+        if (_projectCompactLayout == compact)
+        {
+            return;
+        }
+
+        _projectCompactLayout = compact;
+        ProjectWorkspaceGrid.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "3*,2*");
+        ProjectWorkspaceGrid.RowDefinitions = new RowDefinitions(compact ? "Auto,Auto,Auto,Auto" : "Auto,Auto");
+        ProjectWorkspaceGrid.Margin = compact
+            ? new Thickness(18, 16, 18, 24)
+            : new Thickness(28, 24, 28, 32);
+
+        Grid.SetColumn(ProjectOverviewCard, 0);
+        Grid.SetRow(ProjectOverviewCard, 0);
+        Grid.SetColumn(ProjectChecklistSection, 0);
+        Grid.SetRow(ProjectChecklistSection, 1);
+
+        Grid.SetColumn(ProjectNotesSection, compact ? 0 : 1);
+        Grid.SetRow(ProjectNotesSection, compact ? 2 : 0);
+        Grid.SetColumn(ProjectTasksSection, compact ? 0 : 1);
+        Grid.SetRow(ProjectTasksSection, compact ? 3 : 1);
+    }
+
+    private void UpdateProjectChecklistSummary(Project project)
+    {
+        var openCount = project.Checklist.Count(item => !item.IsDone);
+        var totalCount = project.Checklist.Count;
+        ProjectChecklistCountText.Text = totalCount == 0
+            ? "0 zadań"
+            : $"{openCount} otwarte  •  {totalCount} łącznie";
+        ProjectChecklistEmptyText.IsVisible = totalCount == 0;
+    }
+
+    private static string FormatPolishCount(int count, string singular, string plural, string genitivePlural)
+    {
+        var lastTwoDigits = count % 100;
+        var lastDigit = count % 10;
+        var form = count == 1
+            ? singular
+            : lastTwoDigits is >= 12 and <= 14 || lastDigit is < 2 or > 4
+                ? genitivePlural
+                : plural;
+        return $"{count} {form}";
     }
 
     private void OnNoteChanged(object? sender, TextChangedEventArgs e)
@@ -187,11 +259,12 @@ public partial class EditorPanel : UserControl
 
         note.Title = NoteTitleBox.Text ?? string.Empty;
         note.Body = NoteBodyBox.Text ?? string.Empty;
-        if (SourceModeRadio.IsChecked == true)
+        if (ReferenceEquals(sender, NoteBodyBox))
         {
-            _visualBodySnapshot = string.Empty;
+            ForgetStaleSelection(NoteBodyBox);
         }
         note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
+        note.People = PersonTagService.Parse(NotePeopleBox.Text);
         ViewModel.ScheduleSaveNote(note);
         UpdatePreviewAndLinks(note);
         UpdateDocumentCount(note.Body);
@@ -214,9 +287,8 @@ public partial class EditorPanel : UserControl
 
     private void ApplyNoteMode()
     {
-        var visual = EditModeRadio.IsChecked == true;
-        var source = SourceModeRadio.IsChecked == true;
         var preview = PreviewModeRadio.IsChecked == true;
+        var visual = !preview;
         if (visual && ViewModel?.SelectedNote is { } note &&
             !string.Equals(_visualBodySnapshot, note.Body, StringComparison.Ordinal))
         {
@@ -224,9 +296,106 @@ public partial class EditorPanel : UserControl
         }
 
         VisualEditorScroll.IsVisible = visual;
-        NoteBodyBox.IsVisible = source;
+        NoteBodyBox.IsVisible = false;
         PreviewHost.IsVisible = preview;
         FormatToolbar.IsEnabled = !preview;
+    }
+
+    private void LoadEditorAppearance()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var font = ViewModel.State.EditorFont is "Inter" or "Szeryfowa" or "Monospace"
+            ? ViewModel.State.EditorFont
+            : "Inter";
+        var size = ViewModel.State.EditorFontSize switch
+        {
+            < 15 => 14,
+            > 17 => 18,
+            _ => 16
+        };
+        if (_appearanceLoaded && string.Equals(_editorFontName, font, StringComparison.Ordinal) &&
+            Math.Abs(_editorBodyFontSize - size) < 0.1)
+        {
+            return;
+        }
+
+        _editorFontName = font;
+        _editorBodyFontSize = size;
+        _appearanceLoaded = true;
+        var previousSuppress = _suppress;
+        _suppress = true;
+        EditorFontPicker.SelectedIndex = font switch
+        {
+            "Szeryfowa" => 1,
+            "Monospace" => 2,
+            _ => 0
+        };
+        EditorFontSizePicker.SelectedIndex = size switch
+        {
+            <= 14 => 0,
+            >= 18 => 2,
+            _ => 1
+        };
+        _suppress = previousSuppress;
+        ApplyEditorAppearance(rerender: false, persist: false);
+    }
+
+    private void OnEditorFontChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppress || NoteTitleBox is null || EditorFontPicker.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        _editorFontName = Convert.ToString(item.Content) ?? "Inter";
+        ApplyEditorAppearance(rerender: true, persist: true);
+    }
+
+    private void OnEditorFontSizeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppress || NoteTitleBox is null || EditorFontSizePicker.SelectedItem is not ComboBoxItem item ||
+            !double.TryParse(Convert.ToString(item.Content), out var size))
+        {
+            return;
+        }
+
+        _editorBodyFontSize = Math.Clamp(size, 14, 18);
+        ApplyEditorAppearance(rerender: true, persist: true);
+    }
+
+    private void ApplyEditorAppearance(bool rerender, bool persist)
+    {
+        NoteTitleBox.FontFamily = EditorFontFamily;
+        NoteBodyBox.FontFamily = EditorFontFamily;
+        NoteBodyBox.FontSize = _editorBodyFontSize;
+        NoteBodyBox.LineHeight = _editorBodyFontSize + 9;
+
+        if (persist)
+        {
+            ViewModel?.SaveEditorAppearance(_editorFontName, _editorBodyFontSize);
+        }
+
+        if (!rerender || ViewModel?.SelectedNote is not { } note || _visualBlocks.Count == 0)
+        {
+            return;
+        }
+
+        var activeId = _activeVisualBlock?.RuntimeId;
+        var caret = _activeVisualEditor?.CaretIndex;
+        var previousSuppress = _suppress;
+        _suppress = true;
+        RenderVisualEditor(note);
+        _suppress = previousSuppress;
+        if (activeId is not null)
+        {
+            FocusVisualBlock(activeId, caret);
+        }
+
+        UpdatePreviewAndLinks(note);
     }
 
     private void LoadVisualDocument(Note note, bool force = false)
@@ -260,6 +429,7 @@ public partial class EditorPanel : UserControl
         _visualEditors.Clear();
         _activeVisualEditor = null;
         _activeVisualBlock = null;
+        _rememberedSelection = null;
 
         var numberedIndex = 0;
         foreach (var block in _visualBlocks)
@@ -281,25 +451,56 @@ public partial class EditorPanel : UserControl
 
     private Control CreateVisualBlockControl(Note note, DocumentBlock block, int numberedIndex)
     {
-        var row = new Grid
+        var cell = new Border();
+        cell.Classes.Add("EditorCell");
+        var layout = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("34,*"),
-            ColumnSpacing = 5,
-            Margin = new Thickness(0, 1),
-            MinWidth = 0
+            RowDefinitions = new RowDefinitions("Auto,Auto")
         };
+
+        var header = new Border
+        {
+            Padding = new Thickness(8, 5),
+            Background = new SolidColorBrush(Color.FromArgb(12, 100, 116, 139)),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(35, 128, 128, 128))
+        };
+        var headerGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 7 };
         var menuButton = new Button
         {
             Content = BlockGlyph(block.Kind),
-            Width = 30,
-            Height = 30,
+            Width = 29,
+            Height = 26,
             Padding = new Thickness(2),
-            Opacity = 0.56,
-            VerticalAlignment = VerticalAlignment.Top
+            FontSize = 10,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
         };
         ToolTip.SetTip(menuButton, "Zmień typ, przesuń lub usuń blok");
         menuButton.Click += (_, _) => OpenVisualBlockMenu(menuButton, block);
-        row.Children.Add(menuButton);
+        headerGrid.Children.Add(menuButton);
+        var typeLabel = new TextBlock
+        {
+            Text = BlockLabel(block.Kind),
+            FontSize = 10,
+            FontWeight = FontWeight.SemiBold,
+            Opacity = 0.58,
+            LetterSpacing = 0.55,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(typeLabel, 1);
+        headerGrid.Children.Add(typeLabel);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        actions.Children.Add(CellAction("↑", "Przesuń komórkę w górę", () => MoveVisualBlock(block, -1)));
+        actions.Children.Add(CellAction("↓", "Przesuń komórkę w dół", () => MoveVisualBlock(block, 1)));
+        actions.Children.Add(CellAction("+", "Dodaj komórkę tekstową poniżej", () =>
+            InsertVisualBlockAfter(block, VisualDocumentService.NewParagraph())));
+        actions.Children.Add(CellAction("⋯", "Więcej działań", () => OpenVisualBlockMenu(actions, block)));
+        Grid.SetColumn(actions, 2);
+        headerGrid.Children.Add(actions);
+        header.Child = headerGrid;
+        layout.Children.Add(header);
 
         Control content = block.Kind switch
         {
@@ -313,13 +514,22 @@ public partial class EditorPanel : UserControl
             },
             _ => CreateVisualTextBlock(block, numberedIndex)
         };
-        Grid.SetColumn(content, 1);
-        row.Children.Add(content);
-        return row;
+        var contentHost = new Border { Padding = new Thickness(13, 9), Child = content };
+        Grid.SetRow(contentHost, 1);
+        layout.Children.Add(contentHost);
+        cell.Child = layout;
+        return cell;
     }
 
     private Control CreateVisualTextBlock(DocumentBlock block, int numberedIndex)
     {
+        var bodyFontSize = block.Kind switch
+        {
+            DocumentBlockKind.Heading1 => _editorBodyFontSize + 14,
+            DocumentBlockKind.Heading2 => _editorBodyFontSize + 8,
+            DocumentBlockKind.Heading3 => _editorBodyFontSize + 3,
+            _ => _editorBodyFontSize
+        };
         var editor = new TextBox
         {
             Text = block.Text,
@@ -330,20 +540,14 @@ public partial class EditorPanel : UserControl
             Background = Brushes.Transparent,
             Padding = new Thickness(3, 4),
             MinWidth = 0,
-            FontSize = block.Kind switch
-            {
-                DocumentBlockKind.Heading1 => 30,
-                DocumentBlockKind.Heading2 => 24,
-                DocumentBlockKind.Heading3 => 19,
-                _ => 16
-            },
+            FontSize = bodyFontSize,
             FontWeight = block.Kind is DocumentBlockKind.Heading1 or DocumentBlockKind.Heading2 or DocumentBlockKind.Heading3
                 ? FontWeight.SemiBold
                 : FontWeight.Normal,
             FontFamily = block.Kind == DocumentBlockKind.Code
                 ? new FontFamily("Cascadia Mono, Consolas, Menlo, monospace")
-                : FontFamily.Default,
-            LineHeight = block.Kind == DocumentBlockKind.Code ? 22 : 25,
+                : EditorFontFamily,
+            LineHeight = block.Kind == DocumentBlockKind.Code ? _editorBodyFontSize + 6 : _editorBodyFontSize + 9,
             PlaceholderText = block.Kind switch
             {
                 DocumentBlockKind.Heading1 => "Nagłówek 1",
@@ -362,6 +566,36 @@ public partial class EditorPanel : UserControl
         {
             _activeVisualEditor = editor;
             _activeVisualBlock = block;
+            RememberSelection(editor);
+        };
+        TrackSelection(editor);
+
+        var outputText = CreateInlinePreviewText(block.Text, bodyFontSize, block.Kind);
+        var outputHost = new Border
+        {
+            IsVisible = block.Kind != DocumentBlockKind.Code && HasInlineFormatting(block.Text),
+            Margin = new Thickness(3, 7, 3, 1),
+            Padding = new Thickness(11, 8),
+            CornerRadius = new CornerRadius(7),
+            Background = new SolidColorBrush(Color.FromArgb(18, 40, 103, 214)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 40, 103, 214)),
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "PODGLĄD FORMATOWANIA",
+                        FontSize = 9,
+                        FontWeight = FontWeight.SemiBold,
+                        Opacity = 0.5,
+                        LetterSpacing = 0.5
+                    },
+                    outputText
+                }
+            }
         };
         editor.TextChanged += (_, _) =>
         {
@@ -371,6 +605,8 @@ public partial class EditorPanel : UserControl
             }
 
             block.Text = editor.Text ?? string.Empty;
+            ForgetStaleSelection(editor);
+            RefreshInlinePreview(outputHost, outputText, block.Text, bodyFontSize, block.Kind);
             if (block.Kind == DocumentBlockKind.Paragraph && string.Equals(block.Text, "/", StringComparison.Ordinal))
             {
                 var previousSuppress = _suppress;
@@ -385,9 +621,39 @@ public partial class EditorPanel : UserControl
 
             SyncVisualToNote();
         };
-        editor.KeyDown += (_, args) => OnVisualEditorKeyDown(block, editor, args);
+        // TextBox consumes Enter for a newline. Intercept it during tunnelling so
+        // list/checklist cells can create the next item first.
+        editor.AddHandler(
+            InputElement.KeyDownEvent,
+            (_, args) => OnVisualEditorKeyDown(block, editor, args),
+            RoutingStrategies.Tunnel);
 
-        Control body = editor;
+        var editorWithOutput = new StackPanel { Spacing = 2 };
+        editorWithOutput.Children.Add(editor);
+        editorWithOutput.Children.Add(outputHost);
+        if (block.Kind == DocumentBlockKind.Checklist)
+        {
+            var peopleBox = new TextBox
+            {
+                Text = PersonTagService.Format(block.People),
+                PlaceholderText = "Osoby: anna-kowalska, piotr-nowak",
+                FontSize = 11,
+                MinHeight = 30,
+                Margin = new Thickness(3, 3, 0, 0)
+            };
+            peopleBox.TextChanged += (_, _) =>
+            {
+                if (_suppress)
+                {
+                    return;
+                }
+
+                block.People = PersonTagService.Parse(peopleBox.Text);
+                SyncVisualToNote(updateOutline: false);
+            };
+            editorWithOutput.Children.Add(peopleBox);
+        }
+        Control body = editorWithOutput;
         if (block.Kind is DocumentBlockKind.Bullet or DocumentBlockKind.Numbered or DocumentBlockKind.Checklist)
         {
             var prefix = new Grid
@@ -430,8 +696,8 @@ public partial class EditorPanel : UserControl
             }
 
             prefix.Children.Add(marker);
-            Grid.SetColumn(editor, 1);
-            prefix.Children.Add(editor);
+            Grid.SetColumn(editorWithOutput, 1);
+            prefix.Children.Add(editorWithOutput);
             body = prefix;
         }
 
@@ -448,16 +714,136 @@ public partial class EditorPanel : UserControl
         }
         else if (block.Kind == DocumentBlockKind.Code)
         {
+            var languageBox = new TextBox
+            {
+                Text = block.Language,
+                PlaceholderText = "język, np. sql lub csharp",
+                Width = 180,
+                MinHeight = 28,
+                Padding = new Thickness(7, 3),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            languageBox.TextChanged += (_, _) =>
+            {
+                if (_suppress)
+                {
+                    return;
+                }
+
+                block.Language = (languageBox.Text ?? string.Empty).Trim();
+                SyncVisualToNote(updateOutline: false);
+            };
+            var codeContent = new StackPanel { Spacing = 7 };
+            var languageRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
+            languageRow.Children.Add(new TextBlock
+            {
+                Text = "JĘZYK",
+                FontSize = 9,
+                FontWeight = FontWeight.SemiBold,
+                Opacity = 0.5,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            languageRow.Children.Add(languageBox);
+            codeContent.Children.Add(languageRow);
+            codeContent.Children.Add(body);
             body = new Border
             {
                 CornerRadius = new CornerRadius(7),
                 Background = new SolidColorBrush(Color.FromArgb(22, 100, 116, 139)),
                 Padding = new Thickness(10, 7),
-                Child = body
+                Child = codeContent
             };
         }
 
         return body;
+    }
+
+    private Button CellAction(string label, string tooltip, Action action)
+    {
+        var button = new Button { Content = label };
+        button.Classes.Add("CellAction");
+        ToolTip.SetTip(button, tooltip);
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    private FontFamily EditorFontFamily => _editorFontName switch
+    {
+        "Szeryfowa" => new FontFamily("Georgia, Times New Roman, serif"),
+        "Monospace" => new FontFamily("Cascadia Mono, Consolas, Menlo, monospace"),
+        _ => FontFamily.Default
+    };
+
+    private TextBlock CreateInlinePreviewText(string text, double fontSize, DocumentBlockKind kind)
+    {
+        var preview = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = kind == DocumentBlockKind.Code
+                ? new FontFamily("Cascadia Mono, Consolas, Menlo, monospace")
+                : EditorFontFamily,
+            FontSize = fontSize,
+            FontWeight = kind is DocumentBlockKind.Heading1 or DocumentBlockKind.Heading2 or DocumentBlockKind.Heading3
+                ? FontWeight.SemiBold
+                : FontWeight.Normal,
+            LineHeight = fontSize + 8
+        };
+        PopulateInlinePreview(preview, text);
+        return preview;
+    }
+
+    private static void PopulateInlinePreview(TextBlock preview, string text)
+    {
+        preview.Inlines!.Clear();
+        foreach (var (spanText, bold, italic, code, strike, wiki) in WikiLinkService.ParseInlineSpans(text))
+        {
+            var run = new Run(spanText);
+            if (bold || wiki)
+            {
+                run.FontWeight = FontWeight.Bold;
+            }
+
+            if (italic)
+            {
+                run.FontStyle = FontStyle.Italic;
+            }
+
+            if (code)
+            {
+                run.FontFamily = new FontFamily("Cascadia Mono, Consolas, Menlo, monospace");
+                run.Background = new SolidColorBrush(Color.FromArgb(24, 100, 116, 139));
+            }
+
+            if (wiki)
+            {
+                run.Foreground = new SolidColorBrush(Color.FromRgb(40, 103, 214));
+            }
+
+            if (strike)
+            {
+                run.TextDecorations = TextDecorations.Strikethrough;
+            }
+
+            preview.Inlines.Add(run);
+        }
+    }
+
+    private static bool HasInlineFormatting(string text) =>
+        WikiLinkService.ParseInlineSpans(text).Any(span =>
+            span.Bold || span.Italic || span.Code || span.Strike || span.Wiki);
+
+    private void RefreshInlinePreview(
+        Border host,
+        TextBlock preview,
+        string text,
+        double fontSize,
+        DocumentBlockKind kind)
+    {
+        host.IsVisible = kind != DocumentBlockKind.Code && HasInlineFormatting(text);
+        preview.FontFamily = EditorFontFamily;
+        preview.FontSize = fontSize;
+        PopulateInlinePreview(preview, text);
     }
 
     private Control CreateVisualTable(DocumentBlock block)
@@ -528,6 +914,8 @@ public partial class EditorPanel : UserControl
                     MinHeight = 38,
                     Padding = new Thickness(8, 6),
                     BorderThickness = new Thickness(0.5),
+                    FontFamily = EditorFontFamily,
+                    FontSize = _editorBodyFontSize - 1,
                     FontWeight = rowIndex == 0 ? FontWeight.SemiBold : FontWeight.Normal,
                     Background = rowIndex == 0
                         ? new SolidColorBrush(Color.FromArgb(22, 100, 116, 139))
@@ -537,7 +925,9 @@ public partial class EditorPanel : UserControl
                 {
                     _activeVisualEditor = box;
                     _activeVisualBlock = block;
+                    RememberSelection(box);
                 };
+                TrackSelection(box);
                 box.TextChanged += (_, _) =>
                 {
                     if (_suppress)
@@ -546,6 +936,7 @@ public partial class EditorPanel : UserControl
                     }
 
                     block.Cells[capturedRow][capturedColumn] = box.Text ?? string.Empty;
+                    ForgetStaleSelection(box);
                     SyncVisualToNote(updateOutline: false);
                 };
                 Grid.SetRow(box, rowIndex);
@@ -591,7 +982,8 @@ public partial class EditorPanel : UserControl
             Text = block.Text,
             PlaceholderText = "Podpis / tekst alternatywny",
             FontStyle = FontStyle.Italic,
-            FontSize = 12,
+            FontFamily = EditorFontFamily,
+            FontSize = Math.Max(12, _editorBodyFontSize - 3),
             TextWrapping = TextWrapping.Wrap
         };
         ScrollViewer.SetHorizontalScrollBarVisibility(caption, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
@@ -599,7 +991,9 @@ public partial class EditorPanel : UserControl
         {
             _activeVisualEditor = caption;
             _activeVisualBlock = block;
+            RememberSelection(caption);
         };
+        TrackSelection(caption);
         caption.TextChanged += (_, _) =>
         {
             if (_suppress)
@@ -608,6 +1002,7 @@ public partial class EditorPanel : UserControl
             }
 
             block.Text = caption.Text ?? string.Empty;
+            ForgetStaleSelection(caption);
             SyncVisualToNote();
         };
         panel.Children.Add(caption);
@@ -618,14 +1013,14 @@ public partial class EditorPanel : UserControl
     {
         if (PlatformKeys.IsCommand(e.KeyModifiers) && e.Key == Key.B)
         {
-            WrapSelectionIn(editor, "**", "**", "pogrubienie");
+            ApplyInlineFormattingToEditor(editor, "**", "**", "pogrubienie");
             e.Handled = true;
             return;
         }
 
         if (PlatformKeys.IsCommand(e.KeyModifiers) && e.Key == Key.I)
         {
-            WrapSelectionIn(editor, "*", "*", "kursywa");
+            ApplyInlineFormattingToEditor(editor, "*", "*", "kursywę");
             e.Handled = true;
             return;
         }
@@ -674,18 +1069,19 @@ public partial class EditorPanel : UserControl
         var text = editor.Text ?? string.Empty;
         var start = Math.Clamp(Math.Min(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
         var end = Math.Clamp(Math.Max(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
-        block.Text = text[..start];
-        var nextKind = block.Kind is DocumentBlockKind.Bullet or DocumentBlockKind.Numbered or DocumentBlockKind.Checklist
-            ? block.Kind
-            : DocumentBlockKind.Paragraph;
-        var next = new DocumentBlock
+        var edit = ListEditingService.SplitBlock(block, text, start, end);
+        block.Kind = edit.CurrentKind;
+        block.Text = edit.CurrentText;
+        block.IsChecked = edit.CurrentIsChecked;
+        if (edit.FollowingBlock is null)
         {
-            Kind = nextKind,
-            Text = text[end..]
-        };
+            RenderAndSyncVisualDocument(block.RuntimeId, 0);
+            return;
+        }
+
         var index = _visualBlocks.IndexOf(block);
-        _visualBlocks.Insert(index + 1, next);
-        RenderAndSyncVisualDocument(next.RuntimeId, 0);
+        _visualBlocks.Insert(index + 1, edit.FollowingBlock);
+        RenderAndSyncVisualDocument(edit.FollowingBlock.RuntimeId, 0);
     }
 
     private void OpenVisualBlockMenu(Control anchor, DocumentBlock block)
@@ -709,7 +1105,7 @@ public partial class EditorPanel : UserControl
         menu.Items.Add(BlockMenuAction("Przesuń w dół", () => MoveVisualBlock(block, 1)));
         menu.Items.Add(BlockMenuAction("Usuń blok", () => RemoveVisualBlock(block)));
         anchor.ContextMenu = menu;
-        menu.Open(anchor);
+        Dispatcher.UIThread.Post(() => menu.Open(anchor), DispatcherPriority.Input);
     }
 
     private void AddBlockTypeItem(ContextMenu menu, string label, DocumentBlock block, DocumentBlockKind kind) =>
@@ -874,12 +1270,30 @@ public partial class EditorPanel : UserControl
         _ => "¶"
     };
 
+    private static string BlockLabel(DocumentBlockKind kind) => kind switch
+    {
+        DocumentBlockKind.Heading1 => "NAGŁÓWEK 1",
+        DocumentBlockKind.Heading2 => "NAGŁÓWEK 2",
+        DocumentBlockKind.Heading3 => "NAGŁÓWEK 3",
+        DocumentBlockKind.Bullet => "LISTA PUNKTOWANA",
+        DocumentBlockKind.Numbered => "LISTA NUMEROWANA",
+        DocumentBlockKind.Checklist => "ZADANIE",
+        DocumentBlockKind.Quote => "CYTAT",
+        DocumentBlockKind.Code => "KOD",
+        DocumentBlockKind.Rule => "SEPARATOR",
+        DocumentBlockKind.Image => "OBRAZ",
+        DocumentBlockKind.Table => "TABELA",
+        _ => "TEKST"
+    };
+
     private sealed class OutlineListItem(string blockId, string title, int level)
     {
         public string BlockId { get; } = blockId;
         public string DisplayTitle { get; } = new string(' ', Math.Max(0, level - 1) * 3) + title;
         public override string ToString() => DisplayTitle;
     }
+
+    private sealed record RememberedSelection(TextBox Editor, string TextSnapshot, int Start, int End);
 
     public void UpdateSaveStatus(string? status)
     {
@@ -894,25 +1308,6 @@ public partial class EditorPanel : UserControl
         if (_focusMode)
         {
             SetFocusMode(false);
-        }
-    }
-
-    private void OnBodyKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (!PlatformKeys.IsCommand(e.KeyModifiers))
-        {
-            return;
-        }
-
-        if (e.Key == Key.B)
-        {
-            WrapSelection("**", "**", "pogrubienie");
-            e.Handled = true;
-        }
-        else if (e.Key == Key.I)
-        {
-            WrapSelection("*", "*", "kursywa");
-            e.Handled = true;
         }
     }
 
@@ -1112,43 +1507,24 @@ public partial class EditorPanel : UserControl
             : $"{positions.Count} wyników";
     }
 
-    private void OnFormatBold(object? sender, RoutedEventArgs e) => WrapSelection("**", "**", "pogrubienie");
-    private void OnFormatItalic(object? sender, RoutedEventArgs e) => WrapSelection("*", "*", "kursywa");
-    private void OnFormatStrike(object? sender, RoutedEventArgs e) => WrapSelection("~~", "~~", "przekreślenie");
-    private void OnFormatCode(object? sender, RoutedEventArgs e) => WrapSelection("`", "`", "kod");
-    private void OnFormatWiki(object? sender, RoutedEventArgs e) => WrapSelection("[[", "]]", "wikilink");
-    private void OnFormatLink(object? sender, RoutedEventArgs e) => WrapSelection("[", "](https://)", "tekst linku");
-    private void OnFormatH1(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Heading1, "# ");
-    private void OnFormatH2(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Heading2, "## ");
-    private void OnFormatH3(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Heading3, "### ");
-    private void OnFormatBullet(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Bullet, "- ");
-    private void OnFormatNumbered(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Numbered, "1. ");
-    private void OnFormatCheck(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Checklist, "- [ ] ");
-    private void OnFormatQuote(object? sender, RoutedEventArgs e) => ApplyBlockKindOrPrefix(DocumentBlockKind.Quote, "> ");
-    private void OnFormatDash(object? sender, RoutedEventArgs e) => InsertAtCaret(" — ");
+    private void OnFormatBold(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("**", "**", "pogrubienie");
+    private void OnFormatItalic(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("*", "*", "kursywę");
+    private void OnFormatStrike(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("~~", "~~", "przekreślenie");
+    private void OnFormatCode(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("`", "`", "kod w tekście");
+    private void OnFormatWiki(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("[[", "]]", "wikilink");
+    private void OnFormatLink(object? sender, RoutedEventArgs e) => ApplyInlineFormatting("[", "](https://)", "link");
+    private void OnFormatH1(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Heading1);
+    private void OnFormatH2(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Heading2);
+    private void OnFormatH3(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Heading3);
+    private void OnFormatBullet(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Bullet);
+    private void OnFormatNumbered(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Numbered);
+    private void OnFormatCheck(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Checklist);
+    private void OnFormatQuote(object? sender, RoutedEventArgs e) => ApplyBlockKind(DocumentBlockKind.Quote);
     private void OnFormatRule(object? sender, RoutedEventArgs e)
-    {
-        if (EditModeRadio.IsChecked == true)
-        {
-            InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Rule });
-        }
-        else
-        {
-            InsertBlock("---");
-        }
-    }
+        => InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Rule });
 
     private void OnFormatTable(object? sender, RoutedEventArgs e)
-    {
-        if (EditModeRadio.IsChecked == true)
-        {
-            InsertVisualNearActive(VisualDocumentService.NewTable());
-        }
-        else
-        {
-            InsertBlock("| Kolumna 1 | Kolumna 2 |\n| --- | --- |\n| Wartość | Wartość |");
-        }
-    }
+        => InsertVisualNearActive(VisualDocumentService.NewTable());
 
     private async void OnInsertImage(object? sender, RoutedEventArgs e)
     {
@@ -1183,19 +1559,12 @@ public partial class EditorPanel : UserControl
             var store = new AttachmentStore(ViewModel.DataFolder);
             var imported = await Task.Run(() => store.ImportImage(note.Id, sourcePath));
             var alt = Path.GetFileNameWithoutExtension(sourcePath);
-            if (EditModeRadio.IsChecked == true)
+            InsertVisualNearActive(new DocumentBlock
             {
-                InsertVisualNearActive(new DocumentBlock
-                {
-                    Kind = DocumentBlockKind.Image,
-                    Text = alt,
-                    ImagePath = imported.MarkdownPath
-                });
-            }
-            else
-            {
-                InsertBlock(AttachmentStore.BuildMarkdownImage(alt, imported.MarkdownPath));
-            }
+                Kind = DocumentBlockKind.Image,
+                Text = alt,
+                ImagePath = imported.MarkdownPath
+            });
             ViewModel.StatusText = $"Dodano obraz: {Path.GetFileName(imported.FullPath)}";
         }
         catch (Exception ex)
@@ -1205,61 +1574,94 @@ public partial class EditorPanel : UserControl
         }
     }
 
-    private void WrapSelection(string before, string after, string placeholder)
+    private void ApplyInlineFormatting(string before, string after, string label)
     {
-        if (EditModeRadio.IsChecked == true)
+        var editor = _activeVisualEditor ?? _visualEditors.Values.FirstOrDefault();
+        if (editor is not null)
         {
-            var editor = _activeVisualEditor ?? _visualEditors.Values.FirstOrDefault();
-            if (editor is not null)
-            {
-                WrapSelectionIn(editor, before, after, placeholder);
-            }
+            ApplyInlineFormattingToEditor(editor, before, after, label);
+        }
+    }
 
+    private void ApplyInlineFormattingToEditor(TextBox editor, string before, string after, string label)
+    {
+        var text = editor.Text ?? string.Empty;
+        var (start, end) = ResolveSelection(editor);
+        var edit = InlineFormattingService.Toggle(text, start, end, before, after);
+        if (!edit.Changed)
+        {
+            EditorSaveStatusText.Text = $"Zaznacz tekst, aby zastosować {label}.";
+            editor.Focus();
             return;
         }
 
-        NoteBodyBox.Focus();
-        var text = NoteBodyBox.Text ?? string.Empty;
-        var start = Math.Min(NoteBodyBox.SelectionStart, NoteBodyBox.SelectionEnd);
-        var end = Math.Max(NoteBodyBox.SelectionStart, NoteBodyBox.SelectionEnd);
-        start = Math.Clamp(start, 0, text.Length);
-        end = Math.Clamp(end, 0, text.Length);
-        var selected = end > start ? text[start..end] : placeholder;
-        var next = text[..start] + before + selected + after + text[end..];
-        _suppress = true;
-        NoteBodyBox.Text = next;
-        _suppress = false;
-        NoteBodyBox.SelectionStart = start + before.Length;
-        NoteBodyBox.SelectionEnd = start + before.Length + selected.Length;
-        SyncBodyToNote();
+        editor.Text = edit.Text;
+        editor.SelectionStart = edit.SelectionStart;
+        editor.SelectionEnd = edit.SelectionEnd;
+        RememberSelection(editor);
+        editor.Focus();
     }
 
-    private void WrapSelectionIn(TextBox editor, string before, string after, string placeholder)
+    private void RememberSelection(TextBox editor)
     {
-        editor.Focus();
         var text = editor.Text ?? string.Empty;
         var start = Math.Clamp(Math.Min(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
         var end = Math.Clamp(Math.Max(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
-        var selected = end > start ? text[start..end] : placeholder;
-        editor.Text = text[..start] + before + selected + after + text[end..];
-        editor.SelectionStart = start + before.Length;
-        editor.SelectionEnd = start + before.Length + selected.Length;
+        if (end > start)
+        {
+            _rememberedSelection = new RememberedSelection(editor, text, start, end);
+        }
     }
 
-    private void ApplyBlockKindOrPrefix(DocumentBlockKind kind, string sourcePrefix)
+    private void TrackSelection(TextBox editor)
     {
-        if (EditModeRadio.IsChecked == true)
+        editor.PropertyChanged += (_, args) =>
         {
-            var block = _activeVisualBlock ?? _visualBlocks.FirstOrDefault();
-            if (block is not null)
+            if (args.Property == TextBox.SelectionStartProperty ||
+                args.Property == TextBox.SelectionEndProperty)
             {
-                ChangeVisualBlockKind(block, kind);
+                RememberSelection(editor);
             }
+        };
+    }
 
-            return;
+    private (int Start, int End) ResolveSelection(TextBox editor)
+    {
+        var text = editor.Text ?? string.Empty;
+        var start = Math.Clamp(Math.Min(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
+        var end = Math.Clamp(Math.Max(editor.SelectionStart, editor.SelectionEnd), 0, text.Length);
+        if (end > start)
+        {
+            return (start, end);
         }
 
-        PrefixLines(sourcePrefix);
+        if (_rememberedSelection is { } remembered &&
+            ReferenceEquals(remembered.Editor, editor) &&
+            string.Equals(remembered.TextSnapshot, text, StringComparison.Ordinal))
+        {
+            return (remembered.Start, remembered.End);
+        }
+
+        return (start, end);
+    }
+
+    private void ForgetStaleSelection(TextBox editor)
+    {
+        if (_rememberedSelection is { } remembered &&
+            ReferenceEquals(remembered.Editor, editor) &&
+            !string.Equals(remembered.TextSnapshot, editor.Text ?? string.Empty, StringComparison.Ordinal))
+        {
+            _rememberedSelection = null;
+        }
+    }
+
+    private void ApplyBlockKind(DocumentBlockKind kind)
+    {
+        var block = _activeVisualBlock ?? _visualBlocks.FirstOrDefault();
+        if (block is not null)
+        {
+            ChangeVisualBlockKind(block, kind);
+        }
     }
 
     private void InsertVisualNearActive(DocumentBlock block)
@@ -1274,82 +1676,23 @@ public partial class EditorPanel : UserControl
         RenderAndSyncVisualDocument(block.RuntimeId, 0);
     }
 
-    private void PrefixLines(string prefix)
-    {
-        NoteBodyBox.Focus();
-        var text = NoteBodyBox.Text ?? string.Empty;
-        var start = Math.Min(NoteBodyBox.SelectionStart, NoteBodyBox.SelectionEnd);
-        var end = Math.Max(NoteBodyBox.SelectionStart, NoteBodyBox.SelectionEnd);
-        start = Math.Clamp(start, 0, text.Length);
-        end = Math.Clamp(end, 0, text.Length);
+    private void OnAddParagraphBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(VisualDocumentService.NewParagraph());
 
-        if (end == start)
-        {
-            var lineStart = start == 0 ? 0 : text.LastIndexOf('\n', start - 1) + 1;
-            var lineEnd = text.IndexOf('\n', start);
-            if (lineEnd < 0)
-            {
-                lineEnd = text.Length;
-            }
+    private void OnAddHeadingBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Heading2 });
 
-            start = lineStart;
-            end = lineEnd;
-        }
+    private void OnAddListBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Bullet });
 
-        var block = text[start..end];
-        var lines = block.Replace("\r\n", "\n").Split('\n');
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                if (lines.Length == 1)
-                {
-                    lines[i] = prefix;
-                }
+    private void OnAddChecklistBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Checklist });
 
-                continue;
-            }
+    private void OnAddCodeBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Code, Language = "text" });
 
-            var stripped = line;
-            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"^#{1,3}\s+", "");
-            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"^>\s+", "");
-            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"^[-*]\s+(\[[ xX]\]\s+)?", "");
-            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"^\d+\.\s+", "");
-            lines[i] = prefix + stripped;
-        }
-
-        var replaced = string.Join("\n", lines);
-        var next = text[..start] + replaced + text[end..];
-        _suppress = true;
-        NoteBodyBox.Text = next;
-        _suppress = false;
-        NoteBodyBox.SelectionStart = start;
-        NoteBodyBox.SelectionEnd = start + replaced.Length;
-        SyncBodyToNote();
-    }
-
-    private void InsertAtCaret(string snippet)
-    {
-        NoteBodyBox.Focus();
-        var text = NoteBodyBox.Text ?? string.Empty;
-        var caret = Math.Clamp(NoteBodyBox.CaretIndex, 0, text.Length);
-        var next = text[..caret] + snippet + text[caret..];
-        _suppress = true;
-        NoteBodyBox.Text = next;
-        _suppress = false;
-        NoteBodyBox.CaretIndex = caret + snippet.Length;
-        SyncBodyToNote();
-    }
-
-    private void InsertBlock(string block)
-    {
-        var text = NoteBodyBox.Text ?? string.Empty;
-        var caret = Math.Clamp(NoteBodyBox.CaretIndex, 0, text.Length);
-        var before = caret > 0 && text[caret - 1] != '\n' ? "\n\n" : string.Empty;
-        var after = caret < text.Length && text[caret] != '\n' ? "\n\n" : "\n";
-        InsertAtCaret(before + block + after);
-    }
+    private void OnAddTableBlock(object? sender, RoutedEventArgs e) =>
+        InsertVisualNearActive(VisualDocumentService.NewTable());
 
     private void SyncBodyToNote()
     {
@@ -1367,8 +1710,12 @@ public partial class EditorPanel : UserControl
     }
 
     private void OnToggleMetadata(object? sender, RoutedEventArgs e)
+        => ToggleMetadataPanel();
+
+    public void ToggleMetadataPanel()
     {
         _metadataVisible = !_metadataVisible;
+        ViewModel?.SaveEditorDetailsVisibility(_metadataVisible);
         ApplyEditorChrome();
     }
 
@@ -1381,14 +1728,7 @@ public partial class EditorPanel : UserControl
         FocusModeChanged?.Invoke(enabled);
         if (enabled)
         {
-            if (EditModeRadio.IsChecked == true)
-            {
-                (_activeVisualEditor ?? _visualEditors.Values.FirstOrDefault())?.Focus();
-            }
-            else
-            {
-                NoteBodyBox.Focus();
-            }
+            (_activeVisualEditor ?? _visualEditors.Values.FirstOrDefault())?.Focus();
         }
     }
 
@@ -1421,7 +1761,7 @@ public partial class EditorPanel : UserControl
         menu.Items.Add(ExportItem("Word / Docs (.docx)", () => _ = ExportNoteAsync("docx")));
         menu.Items.Add(ExportItem("PDF (.pdf)", () => _ = ExportNoteAsync("pdf")));
         ExportMenuButton.ContextMenu = menu;
-        menu.Open(ExportMenuButton);
+        Dispatcher.UIThread.Post(() => menu.Open(ExportMenuButton), DispatcherPriority.Input);
     }
 
     private async void OnCopyForConfluence(object? sender, RoutedEventArgs e)
@@ -1433,14 +1773,7 @@ public partial class EditorPanel : UserControl
 
         try
         {
-            if (EditModeRadio.IsChecked == true)
-            {
-                note.Body = VisualDocumentService.Serialize(_visualBlocks);
-            }
-            else
-            {
-                note.Body = NoteBodyBox.Text ?? note.Body;
-            }
+            note.Body = VisualDocumentService.Serialize(_visualBlocks);
 
             note.Title = NoteTitleBox.Text ?? note.Title;
             note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
@@ -1647,7 +1980,7 @@ public partial class EditorPanel : UserControl
         }
 
         note.Title = NoteTitleBox.Text ?? note.Title;
-        note.Body = NoteBodyBox.Text ?? note.Body;
+        note.Body = VisualDocumentService.Serialize(_visualBlocks);
         note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
         ViewModel.FlushPendingSaves();
 
@@ -1777,14 +2110,15 @@ public partial class EditorPanel : UserControl
         var block = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
+            FontFamily = EditorFontFamily,
             Opacity = line.Kind == PreviewLineKind.Muted ? 0.6 : 1
         };
         block.FontSize = line.Kind switch
         {
-            PreviewLineKind.H1 => 30,
-            PreviewLineKind.H2 => 24,
-            PreviewLineKind.H3 => 19,
-            _ => 16
+            PreviewLineKind.H1 => _editorBodyFontSize + 14,
+            PreviewLineKind.H2 => _editorBodyFontSize + 8,
+            PreviewLineKind.H3 => _editorBodyFontSize + 3,
+            _ => _editorBodyFontSize
         };
         block.FontWeight = line.Kind is PreviewLineKind.H1 or PreviewLineKind.H2 or PreviewLineKind.H3
             ? FontWeight.SemiBold
@@ -1852,7 +2186,7 @@ public partial class EditorPanel : UserControl
     private static string[] SplitPreviewTableRow(string line) =>
         line.Trim().Trim('|').Split('|').Select(cell => cell.Trim()).ToArray();
 
-    private static Control CreatePreviewTable(IReadOnlyList<string[]> rows)
+    private Control CreatePreviewTable(IReadOnlyList<string[]> rows)
     {
         var columns = Math.Max(1, rows.Max(row => row.Length));
         var grid = new Grid { Margin = new Thickness(0, 10) };
@@ -1882,6 +2216,8 @@ public partial class EditorPanel : UserControl
                     Child = new TextBlock
                     {
                         Text = value,
+                        FontFamily = EditorFontFamily,
+                        FontSize = _editorBodyFontSize - 1,
                         TextWrapping = TextWrapping.Wrap,
                         FontWeight = rowIndex == 0 ? FontWeight.SemiBold : FontWeight.Normal
                     }
@@ -1989,6 +2325,8 @@ public partial class EditorPanel : UserControl
         }
     }
 
+    private void OnNewProjectNote(object? sender, RoutedEventArgs e) => NewProjectNoteRequested?.Invoke();
+
     private void OnAddProjectTask(object? sender, RoutedEventArgs e)
     {
         if (ViewModel?.SelectedProject is not { } project)
@@ -1996,7 +2334,12 @@ public partial class EditorPanel : UserControl
             return;
         }
 
-        AddChecklistItem(project.Checklist, () => ViewModel.ScheduleSaveProject(project), ProjectChecklistHost);
+        Action changed = () =>
+        {
+            ViewModel.ScheduleSaveProject(project);
+            UpdateProjectChecklistSummary(project);
+        };
+        AddChecklistItem(project.Checklist, changed, ProjectChecklistHost);
     }
 
     private void OnAddNoteTask(object? sender, RoutedEventArgs e)
@@ -2082,16 +2425,35 @@ public partial class EditorPanel : UserControl
                 FillChecklist(host, items, changed, addNext);
             };
 
+            var people = new TextBox
+            {
+                Text = PersonTagService.Format(item.People),
+                PlaceholderText = "Osoby: anna-kowalska, piotr-nowak",
+                FontSize = 11,
+                MinHeight = 30
+            };
+            people.TextChanged += (_, _) =>
+            {
+                item.People = PersonTagService.Parse(people.Text);
+                changed();
+            };
+
             var row = new Grid
             {
                 ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
-                ColumnSpacing = 6
+                RowDefinitions = new RowDefinitions("Auto,Auto"),
+                ColumnSpacing = 6,
+                RowSpacing = 4
             };
             Grid.SetColumn(text, 1);
             Grid.SetColumn(delete, 2);
+            Grid.SetRow(people, 1);
+            Grid.SetColumn(people, 1);
+            Grid.SetColumnSpan(people, 2);
             row.Children.Add(check);
             row.Children.Add(text);
             row.Children.Add(delete);
+            row.Children.Add(people);
             host.Children.Add(row);
         }
     }

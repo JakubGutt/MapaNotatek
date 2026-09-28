@@ -19,12 +19,16 @@ public partial class MainWindow : Window
     private GraphView _graphControl = null!;
     private NoteListView _notesControl = null!;
     private TaskListView _tasksControl = null!;
+    private PeopleView _peopleControl = null!;
     private EditorPanel _editorControl = null!;
     private int _panelIndex;
     private double _lastZoom = 1;
     private bool _zoomSaveReady;
     private bool _workspaceLoaded;
+    private bool _graphWasPresented;
     private bool _editorPageActive;
+    private bool _sidebarVisiblePreference = true;
+    private bool _focusModeActive;
     private bool _allowClose;
     private bool _saveFailureDialogOpen;
 
@@ -149,16 +153,21 @@ public partial class MainWindow : Window
             _graphControl = new GraphView();
             _notesControl = new NoteListView();
             _tasksControl = new TaskListView();
+            _peopleControl = new PeopleView();
             _editorControl = new EditorPanel();
             GraphHost.Content = _graphControl;
             NotesHost.Content = _notesControl;
             TasksHost.Content = _tasksControl;
+            PeopleHost.Content = _peopleControl;
             EditorHost.Content = _editorControl;
 
             _vm = new MainViewModel();
+            _sidebarVisiblePreference = _vm.State.SidebarVisible;
+            ApplyShellVisibility();
             _graphControl.ViewModel = _vm;
             _notesControl.ViewModel = _vm;
             _tasksControl.ViewModel = _vm;
+            _peopleControl.ViewModel = _vm;
             _editorControl.ViewModel = _vm;
             ProjectsTree.ItemsSource = _vm.ProjectTree;
             PinnedList.ItemsSource = _vm.PinnedItems;
@@ -175,9 +184,21 @@ public partial class MainWindow : Window
                 }
             };
             _tasksControl.Bind();
+            _peopleControl.ProjectOpenRequested += project =>
+            {
+                _vm.SelectProject(project, openEditor: true, focusGraph: true);
+                ShowEditorPage();
+            };
+            _peopleControl.NoteOpenRequested += note =>
+            {
+                _vm.SelectNote(note, openEditor: true, focusGraph: true);
+                ShowEditorPage();
+            };
+            _peopleControl.Refresh();
             _graphControl.Refresh();
             _graphControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
             _editorControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
+            _editorControl.NewProjectNoteRequested += CreateNote;
             _editorControl.FocusModeChanged += ApplyFocusMode;
             _editorControl.Refresh();
             StatusText.Text = _vm.DataFolder;
@@ -260,6 +281,10 @@ public partial class MainWindow : Window
             _graphControl.Refresh();
             _notesControl.Bind();
             _tasksControl.Bind();
+            if (PeopleHost.IsVisible)
+            {
+                _peopleControl.Refresh();
+            }
             ProjectsTree.ItemsSource = null;
             ProjectsTree.ItemsSource = _vm.ProjectTree;
             PinnedList.ItemsSource = null;
@@ -297,7 +322,9 @@ public partial class MainWindow : Window
 
     private void UpdateEmptyState()
     {
-        EmptyStateHost.IsVisible = _vm.IsEmptyWorkspace;
+        EmptyStateHost.IsVisible = _vm.IsEmptyWorkspace &&
+                                   _vm.CenterView != CenterViewKind.People &&
+                                   !_editorPageActive;
     }
 
     private void OnSearchChanged(object? sender, TextChangedEventArgs e) =>
@@ -333,7 +360,7 @@ public partial class MainWindow : Window
         }
 
         anchor.ContextMenu = menu;
-        menu.Open(anchor);
+        Dispatcher.UIThread.Post(() => menu.Open(anchor), DispatcherPriority.Input);
     }
 
     private void OnNewProject(object? sender, RoutedEventArgs e) => CreateProject();
@@ -438,11 +465,27 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnPeopleView(object? sender, RoutedEventArgs e)
+    {
+        if (PeopleRadio.IsChecked == true)
+        {
+            ShowCenter(CenterViewKind.People);
+        }
+    }
+
     private void OnGraphViewMenu(object? sender, RoutedEventArgs e) => ShowCenter(CenterViewKind.Graph);
 
     private void OnNotesViewMenu(object? sender, RoutedEventArgs e) => ShowCenter(CenterViewKind.Notes);
 
     private void OnTasksViewMenu(object? sender, RoutedEventArgs e) => ShowCenter(CenterViewKind.Tasks);
+
+    private void OnPeopleViewMenu(object? sender, RoutedEventArgs e) => ShowCenter(CenterViewKind.People);
+
+    private void OnNewPerson(object? sender, RoutedEventArgs e)
+    {
+        ShowCenter(CenterViewKind.People);
+        _peopleControl.CreatePerson();
+    }
 
     private void OnShowAll(object? sender, RoutedEventArgs e) => _vm.ShowAllProjects();
 
@@ -1080,24 +1123,36 @@ public partial class MainWindow : Window
         GraphHost.IsVisible = kind == CenterViewKind.Graph;
         NotesHost.IsVisible = kind == CenterViewKind.Notes;
         TasksHost.IsVisible = kind == CenterViewKind.Tasks;
+        PeopleHost.IsVisible = kind == CenterViewKind.People;
         EditorRadio.IsChecked = false;
         GraphRadio.IsChecked = kind == CenterViewKind.Graph;
         NotesRadio.IsChecked = kind == CenterViewKind.Notes;
         TasksRadio.IsChecked = kind == CenterViewKind.Tasks;
+        PeopleRadio.IsChecked = kind == CenterViewKind.People;
         UpdateEmptyState();
         if (kind == CenterViewKind.Graph)
         {
             _graphControl.Focus();
+            if (!_graphWasPresented)
+            {
+                _graphWasPresented = true;
+                Dispatcher.UIThread.Post(_graphControl.FitToContent, DispatcherPriority.Background);
+            }
         }
         else if (kind == CenterViewKind.Notes)
         {
             _notesControl.Bind();
             _notesControl.Focus();
         }
-        else
+        else if (kind == CenterViewKind.Tasks)
         {
             _tasksControl.Bind();
             _tasksControl.Focus();
+        }
+        else
+        {
+            _peopleControl.Refresh();
+            _peopleControl.Focus();
         }
     }
 
@@ -1112,20 +1167,64 @@ public partial class MainWindow : Window
         GraphHost.IsVisible = false;
         NotesHost.IsVisible = false;
         TasksHost.IsVisible = false;
+        PeopleHost.IsVisible = false;
         EmptyStateHost.IsVisible = false;
         RightPanel.IsVisible = true;
         EditorRadio.IsChecked = true;
         GraphRadio.IsChecked = false;
         NotesRadio.IsChecked = false;
         TasksRadio.IsChecked = false;
+        PeopleRadio.IsChecked = false;
     }
 
     private void ApplyFocusMode(bool enabled)
     {
-        SidebarPanel.IsVisible = !enabled;
-        WorkspaceNav.IsVisible = !enabled;
-        MainMenu.IsVisible = !enabled;
-        StatusBar.IsVisible = !enabled;
+        _focusModeActive = enabled;
+        ApplyShellVisibility();
+    }
+
+    private void OnToggleSidebar(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is null)
+        {
+            return;
+        }
+
+        SetSidebarVisibility(!_sidebarVisiblePreference);
+    }
+
+    private void SetSidebarVisibility(bool visible)
+    {
+        _sidebarVisiblePreference = visible;
+        _vm.SaveSidebarVisibility(visible);
+        _vm.StatusText = visible ? "Pokazano panel nawigacji" : "Ukryto panel nawigacji";
+        ApplyShellVisibility();
+    }
+
+    private void OnToggleEditorDetails(object? sender, RoutedEventArgs e)
+    {
+        if (_editorPageActive && _vm?.SelectedNote is not null)
+        {
+            _editorControl.ToggleMetadataPanel();
+            return;
+        }
+
+        if (_vm is not null)
+        {
+            _vm.SaveEditorDetailsVisibility(!_vm.State.EditorDetailsVisible);
+            _vm.StatusText = _vm.State.EditorDetailsVisible
+                ? "Panel szczegółów będzie widoczny w edytorze"
+                : "Panel szczegółów będzie ukryty w edytorze";
+        }
+    }
+
+    private void ApplyShellVisibility()
+    {
+        SidebarPanel.IsVisible = _sidebarVisiblePreference && !_focusModeActive;
+        WorkspaceNav.IsVisible = !_focusModeActive;
+        MainMenu.IsVisible = !_focusModeActive;
+        StatusBar.IsVisible = !_focusModeActive;
+        SidebarToggleButton.Content = SidebarPanel.IsVisible ? "Ukryj panel" : "Pokaż panel";
     }
 
     private void ChangeZoom(double delta)
@@ -1139,6 +1238,11 @@ public partial class MainWindow : Window
 
     private void FocusSearch()
     {
+        if (!_sidebarVisiblePreference)
+        {
+            SetSidebarVisibility(true);
+        }
+
         SearchBox.Focus();
         SearchBox.SelectAll();
     }
@@ -1158,10 +1262,20 @@ public partial class MainWindow : Window
 
     private void CyclePanel(int step)
     {
-        _panelIndex = (_panelIndex + step + 3) % 3;
-        if (_panelIndex == 2 && !_vm.IsEditorOpen)
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            _panelIndex = step > 0 ? 0 : 1;
+            _panelIndex = (_panelIndex + step + 3) % 3;
+            if (_panelIndex == 0 && !SidebarPanel.IsVisible)
+            {
+                continue;
+            }
+
+            if (_panelIndex == 2 && !_vm.IsEditorOpen)
+            {
+                continue;
+            }
+
+            break;
         }
 
         switch (_panelIndex)
@@ -1178,9 +1292,13 @@ public partial class MainWindow : Window
                 {
                     _notesControl.Focus();
                 }
-                else
+                else if (_vm.CenterView == CenterViewKind.Tasks)
                 {
                     _tasksControl.Focus();
+                }
+                else
+                {
+                    _peopleControl.Focus();
                 }
 
                 break;
@@ -1327,12 +1445,14 @@ public partial class MainWindow : Window
         new() { Name = "Szablon: notatka dzienna", Shortcut = "", Run = () => CreateNoteFromTemplate("daily") },
         new() { Name = "Nowy projekt", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject },
         new() { Name = "Nowy folder", Shortcut = "", Run = () => OnNewFolder(null, new RoutedEventArgs()) },
+        new() { Name = "Nowa osoba", Shortcut = "", Run = () => OnNewPerson(null, new RoutedEventArgs()) },
         new() { Name = "Zapisz", Shortcut = PlatformKeys.Chord("S"), Run = _vm.SaveNow },
         new() { Name = "Znajdź w dokumencie", Shortcut = PlatformKeys.Chord("F"), Run = FindInDocument },
         new() { Name = "Szukaj w całej bibliotece", Shortcut = PlatformKeys.ChordShift("F"), Run = FocusSearch },
         new() { Name = "Widok grafu", Shortcut = PlatformKeys.Chord("1"), Run = () => ShowCenter(CenterViewKind.Graph) },
         new() { Name = "Lista notatek", Shortcut = PlatformKeys.Chord("2"), Run = () => ShowCenter(CenterViewKind.Notes) },
         new() { Name = "Otwarte zadania", Shortcut = PlatformKeys.Chord("3"), Run = () => ShowCenter(CenterViewKind.Tasks) },
+        new() { Name = "Osoby", Shortcut = PlatformKeys.Chord("4"), Run = () => ShowCenter(CenterViewKind.People) },
         new() { Name = "Pokaż wszystkie projekty", Shortcut = "", Run = _vm.ShowAllProjects },
         new() { Name = "Kosz", Shortcut = "", Run = () => _ = ShowTrashAsync() },
         new() { Name = "Przypnij / odepnij", Shortcut = "", Run = _vm.TogglePinSelected },
@@ -1461,6 +1581,13 @@ public partial class MainWindow : Window
         if (mod && e.Key == Key.D3)
         {
             ShowCenter(CenterViewKind.Tasks);
+            e.Handled = true;
+            return;
+        }
+
+        if (mod && e.Key == Key.D4)
+        {
+            ShowCenter(CenterViewKind.People);
             e.Handled = true;
             return;
         }

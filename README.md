@@ -6,24 +6,29 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 
 ## Co jest dostępne
 
-- pełnostronicowy edytor wizualny z blokami, trybem skupienia, podglądem, licznikiem słów i automatycznym zapisem;
-- Markdown pozostaje przenośnym formatem pliku i opcjonalnym widokiem źródłowym — nie trzeba pracować bezpośrednio na znacznikach blokowych;
+- pełnostronicowy edytor komórkowy: osobne komórki tekstu, nagłówków, list, zadań, kodu, obrazów i tabel składają się automatycznie w jeden dokument;
+- Markdown pozostaje przenośnym formatem pliku i formatem eksportu, ale nie jest osobnym trybem pracy — edycja odbywa się w komórkach dokumentu;
 - edytowalne bloki: akapit, trzy poziomy nagłówków, listy, checklisty, cytaty, kod, obrazy, tabele i separatory; bloki można zmieniać, przesuwać i usuwać;
-- pasek formatowania: pogrubienie, kursywa, przekreślenie, kod w tekście, linki i `[[wikilinki]]`;
+- pasek formatowania działający na rzeczywistym zaznaczeniu: pogrubienie, kursywa, przekreślenie, kod w tekście, linki i `[[wikilinki]]`, z podglądem wyniku bez wstawiania tekstów zastępczych;
+- wybór kroju i rozmiaru pisma edytora, zapamiętywany wyłącznie lokalnie;
+- niezależnie chowane panele nawigacji i szczegółów notatki; wybrany układ jest zapamiętywany lokalnie;
 - lokalne obrazy PNG, JPEG, GIF i WebP — importowany plik jest kopiowany do biblioteki;
 - tabela pozwala dodawać i usuwać wiersze oraz kolumny, a spis treści prowadzi do nagłówków dokumentu;
 - pięć szablonów startowych: spotkanie, decyzja, plan projektu, procedura i notatka dzienna;
 - znajdowanie i zamiana w otwartym dokumencie, z opcją rozróżniania wielkości liter;
 - wyszukiwanie biblioteki z pełnymi frazami, wykluczeniami oraz filtrami `title:`, `body:`, `tag:`, `project:`, `type:` i `has:task`;
 - lokalna historia wcześniejszych wersji notatki z podglądem i przywracaniem;
-- eksport notatki do Markdown, samodzielnego HTML, DOCX i PDF;
+- eksport notatki do Markdown, samodzielnego HTML, DOCX i dopracowanego PDF z tabelami wielostronicowymi, formatowaniem tekstu, blokami kodu, cytatami, obrazami oraz nagłówkami i stopkami;
 - kopiowanie bezpiecznego rich textu do schowka, gotowego do wklejenia do Confluence lub innego edytora;
 - projekty, zagnieżdżone foldery, tagi, checklisty, zadania zbiorcze, przypięte i ostatnio otwierane notatki;
-- graf projektów, notatek i wikilinków jako widok pomocniczy;
+- panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; osoby są osobnym typem przypisania, niezależnym od zwykłych tagów;
+- interaktywny graf projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
+- widoczny wybór zakresu grafu: wszystkie projekty albo jedno drzewo projektu; foldery mają odrębny, turkusowy kolor;
+- Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;
 - kosz dla notatek i projektów z możliwością przywrócenia;
 - zweryfikowane kopie danych i przywracanie ich do nowego lub pustego folderu.
 
-Edytor wizualny zapisuje zwykły Markdown w tle. Daje to czytelne i przenośne pliki bez własnościowego formatu. Formatowanie blokowe jest wizualne; składnia formatowania wewnątrz pojedynczego wiersza, np. `**pogrubienie**`, może być widoczna podczas bezpośredniej edycji. Nie jest to pełne odwzorowanie wszystkich funkcji Worda.
+Edytor komórkowy zapisuje zwykły Markdown w tle. Daje to czytelne i przenośne pliki bez własnościowego formatu. Podczas edycji komórka może pokazać przenośne znaczniki, np. `**tekst**`, ale bezpośrednio pod nią wyświetla rzeczywiście sformatowany wynik. Krój i rozmiar pisma są lokalną preferencją widoku, a semantyczne formatowanie pozostaje zapisane w pliku. Nie jest to pełne odwzorowanie wszystkich funkcji Worda.
 
 ## Offline i prywatność
 
@@ -94,7 +99,8 @@ Domyślna biblioteka to `~/Documents/MapaNotatek` na macOS albo `%USERPROFILE%\D
 MapaNotatek/
   Notes/                 # notatki Markdown i kopie .bak
   Projects/              # projekty/foldery Markdown i kopie .bak
-  Assets/<note-id>/      # obrazy skopiowane do notatek
+  People/                # profile osób Markdown i kopie .bak
+  Assets/<item-id>/      # obrazy notatek i awatary skopiowane do biblioteki
   History/               # ograniczona historia lokalnych wersji
   Trash/                 # usunięte notatki
     Projects/            # usunięte projekty
@@ -102,7 +108,7 @@ MapaNotatek/
   app-state.json         # ustawienia biblioteki i stan interfejsu
 ```
 
-Notatki i projekty są czytelnymi plikami `.md` z prostym nagłówkiem metadanych. Można je otworzyć także poza aplikacją, ale równoczesna edycja tego samego pliku w dwóch programach może wywołać konflikt. MapaNotatek wykrywa zmianę zewnętrzną przed nadpisaniem i pozwala zachować własne zmiany jako osobną kopię.
+Notatki, projekty i profile osób są czytelnymi plikami `.md` z prostym nagłówkiem metadanych. Przypisania osób są zapisane w osobnym polu `people`, a przy zadaniach jako niewidoczna metadana komentarza Markdown. Można je otworzyć także poza aplikacją, ale równoczesna edycja tego samego pliku w dwóch programach może wywołać konflikt. MapaNotatek wykrywa zmianę zewnętrzną przed nadpisaniem i pozwala zachować własne zmiany jako osobną kopię.
 
 ## Kopie i odzyskiwanie
 
@@ -145,7 +151,7 @@ Na macOS klawiszem `Mod` jest `⌘`, a na Windows `Ctrl`.
 | `Mod+S` | Zapisz natychmiast |
 | `Mod+F` | Znajdź i zamień w dokumencie |
 | `Mod+Shift+F` | Szukaj w całej bibliotece |
-| `Mod+1 / 2 / 3` | Graf / notatki / zadania |
+| `Mod+1 / 2 / 3 / 4` | Graf / notatki / zadania / osoby |
 | `Mod+Shift+P` | Lista poleceń |
 | `Mod+,` | Ustawienia |
 | `Mod+/` | Pełna lista skrótów |

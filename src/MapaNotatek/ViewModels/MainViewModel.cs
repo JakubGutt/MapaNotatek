@@ -11,7 +11,8 @@ public enum CenterViewKind
 {
     Graph,
     Notes,
-    Tasks
+    Tasks,
+    People
 }
 
 public sealed class MainViewModel : ObservableObject
@@ -34,6 +35,7 @@ public sealed class MainViewModel : ObservableObject
     private string _statusText = string.Empty;
     private readonly Dictionary<string, Note> _pendingSaveNotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Project> _pendingSaveProjects = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Person> _pendingSavePeople = new(StringComparer.OrdinalIgnoreCase);
     private Exception? _lastSaveError;
 
     public MainViewModel()
@@ -68,6 +70,7 @@ public sealed class MainViewModel : ObservableObject
     public AppState State { get; }
     public List<Project> Projects { get; } = [];
     public List<Note> Notes { get; } = [];
+    public List<Person> People { get; } = [];
     public ObservableCollection<Project> VisibleProjects { get; } = [];
     public ObservableCollection<ProjectTreeNode> ProjectTree { get; } = [];
     public ObservableCollection<Note> VisibleNotes { get; } = [];
@@ -78,6 +81,7 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<SidebarItem> RecentItems { get; } = [];
 
     public event Action? GraphChanged;
+    public event Action? PeopleChanged;
     public event Action? EditorChanged;
     public event Action? SelectionChanged;
     public event Action<string>? FocusNodeRequested;
@@ -105,6 +109,7 @@ public sealed class MainViewModel : ObservableObject
                 Raise(nameof(IsGraphView));
                 Raise(nameof(IsNotesView));
                 Raise(nameof(IsTasksView));
+                Raise(nameof(IsPeopleView));
             }
         }
     }
@@ -112,6 +117,7 @@ public sealed class MainViewModel : ObservableObject
     public bool IsGraphView => CenterView == CenterViewKind.Graph;
     public bool IsNotesView => CenterView == CenterViewKind.Notes;
     public bool IsTasksView => CenterView == CenterViewKind.Tasks;
+    public bool IsPeopleView => CenterView == CenterViewKind.People;
 
     public bool IsEditorOpen
     {
@@ -153,9 +159,10 @@ public sealed class MainViewModel : ObservableObject
 
     public string DataFolder => Store.Root;
 
-    public bool HasPendingSaves => _pendingSaveNotes.Count > 0 || _pendingSaveProjects.Count > 0;
+    public bool HasPendingSaves =>
+        _pendingSaveNotes.Count > 0 || _pendingSaveProjects.Count > 0 || _pendingSavePeople.Count > 0;
 
-    public int PendingSaveCount => _pendingSaveNotes.Count + _pendingSaveProjects.Count;
+    public int PendingSaveCount => _pendingSaveNotes.Count + _pendingSaveProjects.Count + _pendingSavePeople.Count;
 
     public bool HasSaveError => _lastSaveError is not null;
 
@@ -192,11 +199,14 @@ public sealed class MainViewModel : ObservableObject
         Projects.AddRange(Store.LoadProjects());
         Notes.Clear();
         Notes.AddRange(Store.LoadNotes());
+        People.Clear();
+        People.AddRange(Store.LoadPeople());
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
         RefreshVisible();
         Raise(nameof(StorageIssues));
         Raise(nameof(HasStorageIssues));
         GraphChanged?.Invoke();
+        PeopleChanged?.Invoke();
         EditorChanged?.Invoke();
     }
 
@@ -243,6 +253,16 @@ public sealed class MainViewModel : ObservableObject
         GraphChanged?.Invoke();
         FocusNodeRequested?.Invoke(note.Id);
         return note;
+    }
+
+    public Person NewPerson()
+    {
+        var person = Store.CreatePerson("Nowa osoba");
+        People.Add(person);
+        People.Sort((left, right) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name));
+        StatusText = "Dodano osobę";
+        PeopleChanged?.Invoke();
+        return person;
     }
 
     private void PlaceNewNode(string id, double? x, double? y, string? preferNearParent)
@@ -422,6 +442,17 @@ public sealed class MainViewModel : ObservableObject
         StatusText = "Zapisywanie…";
     }
 
+    public void ScheduleSavePerson(Person person)
+    {
+        person.Modified = DateTimeOffset.Now;
+        _pendingSavePeople[person.Id] = person;
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
+        _saveTimer.Stop();
+        _saveTimer.Start();
+        StatusText = "Zapisywanie…";
+    }
+
     public void SaveNow()
     {
         _saveTimer.Stop();
@@ -458,6 +489,7 @@ public sealed class MainViewModel : ObservableObject
         var previousTitle = note.Title;
         var previousBody = note.Body;
         var previousTags = note.Tags;
+        var previousPeople = note.People;
         var previousChecklist = note.Checklist;
         var previousModified = note.Modified;
         var previousPath = note.FilePath;
@@ -468,6 +500,7 @@ public sealed class MainViewModel : ObservableObject
             note.Title = string.IsNullOrWhiteSpace(parsed.Title) ? note.Title : parsed.Title;
             note.Body = parsed.Body;
             note.Tags = FrontMatter.SplitTags(parsed["tags"]);
+            note.People = PersonTagService.Parse(parsed["people"]);
             note.Checklist = parsed.Checklist;
             SaveNoteWithHistory(note);
         }
@@ -476,6 +509,7 @@ public sealed class MainViewModel : ObservableObject
             note.Title = previousTitle;
             note.Body = previousBody;
             note.Tags = previousTags;
+            note.People = previousPeople;
             note.Checklist = previousChecklist;
             note.Modified = previousModified;
             note.FilePath = previousPath;
@@ -490,7 +524,7 @@ public sealed class MainViewModel : ObservableObject
         StatusText = $"Przywrócono wersję z {revision.TimestampUtc.ToLocalTime():g}";
     }
 
-    public bool IsEmptyWorkspace => Projects.Count == 0 && Notes.Count == 0;
+    public bool IsEmptyWorkspace => Projects.Count == 0 && Notes.Count == 0 && People.Count == 0;
 
     private static string SavedStatus() => $"Zapisano {DateTime.Now:HH:mm}";
 
@@ -703,6 +737,35 @@ public sealed class MainViewModel : ObservableObject
         EditorChanged?.Invoke();
     }
 
+    public void UpdateTaskPeople(OpenTask task, string? people)
+    {
+        var normalized = PersonTagService.Parse(people);
+        if (task.Item.People.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        task.Item.People = normalized;
+        if (task.IsProject)
+        {
+            var project = Projects.FirstOrDefault(candidate => candidate.Id == task.SourceId);
+            if (project is not null)
+            {
+                ScheduleSaveProject(project);
+            }
+        }
+        else
+        {
+            var note = Notes.FirstOrDefault(candidate => candidate.Id == task.SourceId);
+            if (note is not null)
+            {
+                ScheduleSaveNote(note);
+            }
+        }
+
+        PeopleChanged?.Invoke();
+    }
+
     public void Undo()
     {
         if (_undo.Count == 0)
@@ -822,6 +885,10 @@ public sealed class MainViewModel : ObservableObject
             },
             StringComparer.OrdinalIgnoreCase),
         FocusedProjectId = state.FocusedProjectId,
+        EditorFont = state.EditorFont,
+        EditorFontSize = state.EditorFontSize,
+        SidebarVisible = state.SidebarVisible,
+        EditorDetailsVisible = state.EditorDetailsVisible,
         PinnedIds = state.PinnedIds.ToList(),
         RecentIds = state.RecentIds.ToList()
     };
@@ -833,6 +900,10 @@ public sealed class MainViewModel : ObservableObject
         destination.Zoom = clone.Zoom;
         destination.NodePositions = clone.NodePositions;
         destination.FocusedProjectId = clone.FocusedProjectId;
+        destination.EditorFont = clone.EditorFont;
+        destination.EditorFontSize = clone.EditorFontSize;
+        destination.SidebarVisible = clone.SidebarVisible;
+        destination.EditorDetailsVisible = clone.EditorDetailsVisible;
         destination.PinnedIds = clone.PinnedIds;
         destination.RecentIds = clone.RecentIds;
     }
@@ -840,6 +911,25 @@ public sealed class MainViewModel : ObservableObject
     public void SaveZoom(double zoom)
     {
         State.Zoom = zoom;
+        TrySaveState();
+    }
+
+    public void SaveEditorAppearance(string font, double fontSize)
+    {
+        State.EditorFont = font is "Inter" or "Szeryfowa" or "Monospace" ? font : "Inter";
+        State.EditorFontSize = Math.Clamp(fontSize, 14, 18);
+        TrySaveState();
+    }
+
+    public void SaveSidebarVisibility(bool visible)
+    {
+        State.SidebarVisible = visible;
+        TrySaveState();
+    }
+
+    public void SaveEditorDetailsVisibility(bool visible)
+    {
+        State.EditorDetailsVisible = visible;
         TrySaveState();
     }
 
@@ -877,11 +967,26 @@ public sealed class MainViewModel : ObservableObject
             }
         }
 
+        foreach (var person in _pendingSavePeople.Values.ToList())
+        {
+            try
+            {
+                Store.SavePerson(person);
+                _pendingSavePeople.Remove(person.Id);
+                changed = true;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex;
+            }
+        }
+
         if (changed)
         {
             RefreshVisible();
             RefreshRelated();
             GraphChanged?.Invoke();
+            PeopleChanged?.Invoke();
         }
 
         Raise(nameof(HasPendingSaves));
@@ -934,8 +1039,14 @@ public sealed class MainViewModel : ObservableObject
         {
             var copy = Store.CreateNote(original.Title + " — kopia lokalna", original.Tags);
             copy.Body = original.Body;
+            copy.People = original.People.ToList();
             copy.Checklist = original.Checklist
-                .Select(item => new ChecklistItem { Text = item.Text, IsDone = item.IsDone })
+                .Select(item => new ChecklistItem
+                {
+                    Text = item.Text,
+                    IsDone = item.IsDone,
+                    People = item.People.ToList()
+                })
                 .ToList();
             Store.SaveNote(copy);
             firstCopyId ??= copy.Id;
@@ -950,8 +1061,14 @@ public sealed class MainViewModel : ObservableObject
                 original.ParentId,
                 original.IsFolder);
             copy.Description = original.Description;
+            copy.People = original.People.ToList();
             copy.Checklist = original.Checklist
-                .Select(item => new ChecklistItem { Text = item.Text, IsDone = item.IsDone })
+                .Select(item => new ChecklistItem
+                {
+                    Text = item.Text,
+                    IsDone = item.IsDone,
+                    People = item.People.ToList()
+                })
                 .ToList();
             Store.SaveProject(copy);
             if (firstCopyId is null)
@@ -961,6 +1078,17 @@ public sealed class MainViewModel : ObservableObject
             }
 
             _pendingSaveProjects.Remove(original.Id);
+            copies++;
+        }
+
+        foreach (var original in _pendingSavePeople.Values.ToList())
+        {
+            var copy = Store.CreatePerson(original.Name + " — kopia lokalna");
+            copy.Role = original.Role;
+            copy.Description = original.Description;
+            copy.AvatarPath = original.AvatarPath;
+            Store.SavePerson(copy);
+            _pendingSavePeople.Remove(original.Id);
             copies++;
         }
 
@@ -1452,18 +1580,17 @@ public sealed class MainViewModel : ObservableObject
 
     private IEnumerable<Project> VisibleGraphProjects()
     {
+        var focused = FocusedProject();
+        var scopeIds = focused is null
+            ? null
+            : LayoutService.ProjectSubtree(Projects, focused.Id)
+                .Select(project => project.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var project in Projects)
         {
-            var focused = FocusedProject();
-            if (focused is not null)
+            if (scopeIds is not null && !scopeIds.Contains(project.Id))
             {
-                var inFocusSubtree = project.Id == focused.Id ||
-                                     IsAncestor(focused.Id, project.Id) ||
-                                     string.Equals(project.ParentId, focused.Id, StringComparison.OrdinalIgnoreCase);
-                if (!inFocusSubtree)
-                {
-                    continue;
-                }
+                continue;
             }
 
             if (!string.IsNullOrWhiteSpace(SearchQuery) &&
@@ -1479,6 +1606,10 @@ public sealed class MainViewModel : ObservableObject
 
     private IEnumerable<Note> VisibleGraphNotes()
     {
+        var focused = FocusedProject();
+        var scopeProjects = focused is null
+            ? null
+            : LayoutService.ProjectSubtree(Projects, focused.Id);
         foreach (var note in Notes)
         {
             if (!SearchService.Matches(SearchQuery, note))
@@ -1486,8 +1617,7 @@ public sealed class MainViewModel : ObservableObject
                 continue;
             }
 
-            var focused = FocusedProject();
-            if (focused is not null && !LayoutService.NoteLinksTo(note, focused))
+            if (scopeProjects is not null && !scopeProjects.Any(project => LayoutService.NoteLinksTo(note, project)))
             {
                 continue;
             }

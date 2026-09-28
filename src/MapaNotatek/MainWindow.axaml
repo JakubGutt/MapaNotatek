@@ -38,6 +38,7 @@
                 </MenuItem>
                 <MenuItem Header="Nowy projekt" Click="OnNewProject" />
                 <MenuItem Header="Nowy folder" Click="OnNewFolder" />
+                <MenuItem Header="Nowa osoba" Click="OnNewPerson" />
                 <Separator />
                 <MenuItem Header="Zapisz" Click="OnSave" />
                 <MenuItem Header="Zachowaj konflikt jako osobną kopię…" Click="OnPreserveConflictCopy" />
@@ -62,9 +63,13 @@
                 <MenuItem Header="Graf" Click="OnGraphViewMenu" />
                 <MenuItem Header="Lista notatek" Click="OnNotesViewMenu" />
                 <MenuItem Header="Otwarte zadania" Click="OnTasksViewMenu" />
+                <MenuItem Header="Osoby" Click="OnPeopleViewMenu" />
                 <Separator />
                 <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
                 <MenuItem Header="Wyśrodkuj zaznaczenie" Click="OnCenterSelection" />
+                <Separator />
+                <MenuItem Header="Pokaż / ukryj panel nawigacji" Click="OnToggleSidebar" />
+                <MenuItem Header="Pokaż / ukryj szczegóły notatki" Click="OnToggleEditorDetails" />
                 <Separator />
                 <MenuItem Header="Powiększ graf" Click="OnZoomIn" />
                 <MenuItem Header="Pomniejsz graf" Click="OnZoomOut" />
@@ -109,12 +114,19 @@
                     BorderBrush="{DynamicResource BorderSubtleBrush}"
                     Background="{DynamicResource SurfaceMutedBrush}">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
-                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="5" Margin="0,0,0,14">
                         <StackPanel Spacing="1">
                             <TextBlock Text="MapaNotatek" FontSize="20" FontWeight="Bold" />
                             <TextBlock Text="Twoja przestrzeń wiedzy" FontSize="11" Opacity="0.58" />
                         </StackPanel>
                         <Button Grid.Column="1"
+                                Content="‹"
+                                FontSize="20"
+                                ToolTip.Tip="Ukryj panel nawigacji"
+                                Padding="9,3"
+                                CornerRadius="8"
+                                Click="OnToggleSidebar" />
+                        <Button Grid.Column="2"
                                 Content="+"
                                 FontSize="20"
                                 ToolTip.Tip="Nowa notatka"
@@ -132,7 +144,17 @@
 
                     <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,12">
                         <Button Classes="SidebarAction" Content="Nowa notatka" Click="OnNewNote" />
-                        <Button Classes="SidebarAction" Content="Notatka z szablonu…" Click="OnShowTemplateMenu" />
+                        <Button Classes="SidebarAction" Content="Notatka z szablonu…">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="Spotkanie" Tag="meeting" Click="OnNewFromTemplate" />
+                                    <MenuItem Header="Decyzja" Tag="decision" Click="OnNewFromTemplate" />
+                                    <MenuItem Header="Plan projektu" Tag="project-brief" Click="OnNewFromTemplate" />
+                                    <MenuItem Header="Procedura" Tag="procedure" Click="OnNewFromTemplate" />
+                                    <MenuItem Header="Notatka dzienna" Tag="daily" Click="OnNewFromTemplate" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
                             <Button Grid.Column="0" Content="Projekt" HorizontalAlignment="Stretch" Click="OnNewProject" />
                             <Button Grid.Column="1" Content="Folder" HorizontalAlignment="Stretch" Click="OnNewFolder" />
@@ -217,6 +239,11 @@
                                          Content="Zadania"
                                          GroupName="WorkspaceView"
                                          IsCheckedChanged="OnTasksView" />
+                            <RadioButton x:Name="PeopleRadio"
+                                         Classes="WorkspaceTab"
+                                         Content="Osoby"
+                                         GroupName="WorkspaceView"
+                                         IsCheckedChanged="OnPeopleView" />
                             <RadioButton x:Name="GraphRadio"
                                          Classes="WorkspaceTab"
                                          Content="Graf"
@@ -224,6 +251,10 @@
                                          IsCheckedChanged="OnGraphView" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="SidebarToggleButton"
+                                    Content="Ukryj panel"
+                                    ToolTip.Tip="Pokaż lub ukryj lewy panel nawigacji"
+                                    Click="OnToggleSidebar" />
                             <Button Content="Polecenia"
                                     ToolTip.Tip="Paleta poleceń"
                                     Click="OnCommandPalette" />
@@ -237,6 +268,7 @@
                     <ContentControl x:Name="GraphHost" IsVisible="False" />
                     <ContentControl x:Name="NotesHost" IsVisible="False" />
                     <ContentControl x:Name="TasksHost" IsVisible="False" />
+                    <ContentControl x:Name="PeopleHost" IsVisible="False" />
 
                     <Border x:Name="RightPanel"
                             IsVisible="False"

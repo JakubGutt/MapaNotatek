@@ -9,6 +9,9 @@ var tests = new (string Name, Action Run)[]
     ("nowy task z panelu jest dopisywany tylko raz", NewPanelTaskIsAppendedOnce),
     ("legacy task nie jest duplikowany", LegacyTaskIsNotDuplicated),
     ("metadane projektu przechodzą round-trip", ProjectMetadataRoundTrip),
+    ("przypisania osób są osobne od tagów", PersonAssignmentsRoundTrip),
+    ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
+    ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
     ("ponowny zapis tworzy kopię awaryjną", AtomicSaveCreatesBackup),
     ("nieudana zmiana nazwy zachowuje stary plik", FailedRenamePreservesOriginal),
     ("błąd archiwizacji nazwy wycofuje nowy plik", FailedRenameArchiveRollsBack),
@@ -18,6 +21,8 @@ var tests = new (string Name, Action Run)[]
     ("błąd pliku notatki jest raportowany", ReadFailureIsReported),
     ("uszkodzona notatka jest odzyskiwana z .bak", NoteRecoversFromBackup),
     ("stan aplikacji odzyskuje się z .bak", AppStateRecoversFromBackup),
+    ("wygląd edytora jest zapamiętywany lokalnie", EditorAppearanceRoundTrip),
+    ("widoczność paneli bocznych jest zapamiętywana", SidePanelVisibilityRoundTrip),
     ("uszkodzony stan bez backupu przerywa ładowanie", CorruptStateWithoutBackupThrows),
     ("odzyskiwanie stanu zachowuje uszkodzony plik", RecoverStatePreservesBrokenFile),
     ("niezamknięty front matter jest błędem", UnterminatedFrontMatterThrows),
@@ -44,6 +49,14 @@ var tests = new (string Name, Action Run)[]
     ("outline zawiera tylko nagłówki", VisualDocumentOutline),
     ("wbudowane szablony tworzą poprawne dokumenty", BuiltInTemplatesAreValid),
     ("kartka edytora ma stabilną szerokość", EditorCanvasHasStableWidth),
+    ("formatowanie działa na zaznaczeniu bez tekstów zastępczych", InlineFormattingUsesRealSelection),
+    ("edytor wizualny udostępnia komórki dokumentu", EditorExposesDocumentCells),
+    ("enter kontynuuje listy i zadania w komórkach", EnterContinuesCellLists),
+    ("enter kontynuuje listy w źródle Markdown", EnterContinuesMarkdownLists),
+    ("graf ma czytelne sterowanie i mapuje wikilinki", GraphWorkspaceIsDiscoverable),
+    ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
+    ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
+    ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
     ("wyszukiwarka obsługuje filtry i pełne frazy", SearchFiltersAndPhrases),
     ("wyszukiwarka obsługuje wykluczenia i zadania", SearchExclusionsAndTasks),
     ("wyszukiwarka rozróżnia foldery i projekty", SearchProjectTypes)
@@ -104,6 +117,51 @@ static void VisualDocumentTableAndCodeRoundTrip()
     True(serialized.Contains("```csharp", StringComparison.Ordinal));
 }
 
+static void EnterContinuesCellLists()
+{
+    var bullet = new DocumentBlock { Kind = DocumentBlockKind.Bullet, Text = "pierwszy punkt" };
+    var bulletEdit = ListEditingService.SplitBlock(bullet, bullet.Text, bullet.Text.Length, bullet.Text.Length);
+    Equal(DocumentBlockKind.Bullet, bulletEdit.CurrentKind);
+    Equal("pierwszy punkt", bulletEdit.CurrentText);
+    Equal(DocumentBlockKind.Bullet, bulletEdit.FollowingBlock!.Kind);
+    Equal(string.Empty, bulletEdit.FollowingBlock.Text);
+
+    var numbered = new DocumentBlock { Kind = DocumentBlockKind.Numbered, Text = "pierwsza druga" };
+    var numberedEdit = ListEditingService.SplitBlock(numbered, numbered.Text, 9, 9);
+    Equal("pierwsza ", numberedEdit.CurrentText);
+    Equal(DocumentBlockKind.Numbered, numberedEdit.FollowingBlock!.Kind);
+    Equal("druga", numberedEdit.FollowingBlock.Text);
+
+    var checklist = new DocumentBlock { Kind = DocumentBlockKind.Checklist, Text = "gotowe", IsChecked = true };
+    var checklistEdit = ListEditingService.SplitBlock(checklist, checklist.Text, checklist.Text.Length, checklist.Text.Length);
+    True(checklistEdit.CurrentIsChecked);
+    Equal(DocumentBlockKind.Checklist, checklistEdit.FollowingBlock!.Kind);
+    False(checklistEdit.FollowingBlock.IsChecked, "Nowe zadanie powinno być niezaznaczone.");
+
+    var empty = new DocumentBlock { Kind = DocumentBlockKind.Checklist, Text = string.Empty };
+    var emptyEdit = ListEditingService.SplitBlock(empty, empty.Text, 0, 0);
+    Equal(DocumentBlockKind.Paragraph, emptyEdit.CurrentKind);
+    True(emptyEdit.FollowingBlock is null, "Enter na pustym elemencie powinien zakończyć listę.");
+}
+
+static void EnterContinuesMarkdownLists()
+{
+    const string numbered = "1. Pierwszy";
+    var numberedEdit = ListEditingService.ContinueMarkdownList(numbered, numbered.Length, numbered.Length);
+    True(numberedEdit.Changed);
+    Equal("1. Pierwszy\n2. ", numberedEdit.Text);
+    Equal(numberedEdit.Text.Length, numberedEdit.CaretIndex);
+
+    const string checklist = "- [x] Gotowe";
+    var checklistEdit = ListEditingService.ContinueMarkdownList(checklist, checklist.Length, checklist.Length);
+    Equal("- [x] Gotowe\n- [ ] ", checklistEdit.Text);
+
+    const string empty = "- ";
+    var emptyEdit = ListEditingService.ContinueMarkdownList(empty, empty.Length, empty.Length);
+    Equal(string.Empty, emptyEdit.Text);
+    Equal(0, emptyEdit.CaretIndex);
+}
+
 static void VisualDocumentEscapedTableCell()
 {
     const string source = "| Pole | Wartość |\n| --- | --- |\n| A | lewa \\| prawa |";
@@ -159,6 +217,116 @@ static void EditorCanvasHasStableWidth()
         "Długi wiersz nie może włączać poziomego przewijania całej notatki.");
 }
 
+static void InlineFormattingUsesRealSelection()
+{
+    var bold = InlineFormattingService.Toggle("Ala ma kota", 0, 3, "**", "**");
+    True(bold.Changed);
+    Equal("**Ala** ma kota", bold.Text);
+    Equal(2, bold.SelectionStart);
+    Equal(5, bold.SelectionEnd);
+
+    var unbold = InlineFormattingService.Toggle(
+        bold.Text,
+        bold.SelectionStart,
+        bold.SelectionEnd,
+        "**",
+        "**");
+    True(unbold.Changed);
+    Equal("Ala ma kota", unbold.Text);
+    Equal(0, unbold.SelectionStart);
+    Equal(3, unbold.SelectionEnd);
+
+    var empty = InlineFormattingService.Toggle("Bez zmian", 4, 4, "*", "*");
+    False(empty.Changed, "Brak zaznaczenia nie może wstawiać przykładowego słowa.");
+    Equal("Bez zmian", empty.Text);
+
+    var italicInsideBold = InlineFormattingService.Toggle("**Ala**", 2, 5, "*", "*");
+    Equal("***Ala***", italicInsideBold.Text);
+    var combined = WikiLinkService.ParseInlineSpans(italicInsideBold.Text).Single();
+    True(combined.Bold && combined.Italic, "Podgląd powinien łączyć pogrubienie z kursywą.");
+}
+
+static void EditorExposesDocumentCells()
+{
+    var root = FindRepositoryRoot();
+    var view = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml"));
+    var code = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml.cs"));
+
+    True(view.Contains("DODAJ KOMÓRKĘ", StringComparison.Ordinal));
+    True(view.Contains("x:Name=\"EditorFontPicker\"", StringComparison.Ordinal));
+    True(view.Contains("OnAddCodeBlock", StringComparison.Ordinal));
+    True(code.Contains("InlineFormattingService.Toggle", StringComparison.Ordinal));
+    False(code.Contains("WrapSelection(\"**\", \"**\", \"pogrubienie\")", StringComparison.Ordinal),
+        "Przycisk pogrubienia nie może wstawiać tekstu zastępczego.");
+}
+
+static void GraphWorkspaceIsDiscoverable()
+{
+    var root = FindRepositoryRoot();
+    var viewPath = Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml");
+    var codePath = Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml.cs");
+    var windowCodePath = Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs");
+    var xaml = File.ReadAllText(viewPath);
+    var code = File.ReadAllText(codePath);
+    var windowCode = File.ReadAllText(windowCodePath);
+
+    True(xaml.Contains("x:Name=\"GraphSummaryText\"", StringComparison.Ordinal),
+        "Graf powinien pokazywać podsumowanie widocznej mapy.");
+    True(xaml.Contains("Click=\"OnFitGraphClick\"", StringComparison.Ordinal),
+        "Graf powinien mieć widoczną akcję dopasowania wszystkich elementów.");
+    True(xaml.Contains("x:Name=\"GraphSelectionCard\"", StringComparison.Ordinal),
+        "Graf powinien opisywać aktualnie zaznaczony element.");
+    True(xaml.Contains("x:Name=\"GraphProjectFilter\"", StringComparison.Ordinal),
+        "Wybór zakresu projektu powinien być stale widoczny na grafie.");
+    True(xaml.Contains("Value=\"#087F75\"", StringComparison.Ordinal),
+        "Folder powinien mieć wyraźnie inny kolor niż projekt.");
+    True(code.Contains("WikiLinkService.ExtractTitles", StringComparison.Ordinal),
+        "Relacje [[wiki]] między widocznymi notatkami powinny trafiać na graf.");
+    True(code.Contains("FitToContent", StringComparison.Ordinal),
+        "Dopasowanie grafu do okna nie może być atrapą.");
+    True(windowCode.Contains("_graphControl.FitToContent", StringComparison.Ordinal),
+        "Pierwsze wejście do grafu powinno pokazać elementy zamiast pustego narożnika płótna.");
+}
+
+static void GraphProjectScopeIsolated()
+{
+    var root = new Project { Id = "root", Name = "Atlas", Slug = "atlas" };
+    var folder = new Project { Id = "folder", Name = "Dokumentacja", Slug = "docs", ParentId = root.Id, IsFolder = true };
+    var nested = new Project { Id = "nested", Name = "API", Slug = "api", ParentId = folder.Id };
+    var unrelated = new Project { Id = "other", Name = "Inny", Slug = "inny" };
+
+    var scope = LayoutService.ProjectSubtree([root, folder, nested, unrelated], root.Id);
+
+    Equal(3, scope.Count);
+    True(scope.Any(project => project.Id == root.Id));
+    True(scope.Any(project => project.Id == folder.Id));
+    True(scope.Any(project => project.Id == nested.Id));
+    False(scope.Any(project => project.Id == unrelated.Id));
+}
+
+static void GraphCardsHaveBreathingRoom()
+{
+    var project = new Project { Id = "project", Name = "Projekt", Slug = "projekt" };
+    var notes = Enumerable.Range(1, 8)
+        .Select(index => new Note { Id = $"note-{index}", Title = $"Notatka {index}", Tags = ["projekt"] })
+        .ToList();
+    var positions = new Dictionary<string, GraphPosition>(StringComparer.OrdinalIgnoreCase);
+
+    LayoutService.ApplyMissingPositions([project], notes, positions);
+
+    var all = positions.Values.ToList();
+    for (var first = 0; first < all.Count; first++)
+    {
+        for (var second = first + 1; second < all.Count; second++)
+        {
+            var dx = all[first].X - all[second].X;
+            var dy = all[first].Y - all[second].Y;
+            var distance = Math.Sqrt((dx * dx) + (dy * dy));
+            True(distance >= 189.9, "Nowe karty grafu nie powinny startować jedna na drugiej.");
+        }
+    }
+}
+
 static void SearchFiltersAndPhrases()
 {
     var note = new Note
@@ -196,6 +364,21 @@ static void SearchProjectTypes()
     True(SearchService.Matches("type:folder", folder));
     False(SearchService.Matches("type:project", folder));
     True(SearchService.Matches("type:project project:atlas", project));
+}
+
+static void PeoplePanelIsWired()
+{
+    var root = FindRepositoryRoot();
+    var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var editor = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml"));
+    var people = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "PeopleView.axaml"));
+
+    True(shell.Contains("x:Name=\"PeopleRadio\"", StringComparison.Ordinal));
+    True(shell.Contains("x:Name=\"PeopleHost\"", StringComparison.Ordinal));
+    True(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
+    True(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
+    True(people.Contains("x:Name=\"DetailAvatar\"", StringComparison.Ordinal));
+    True(people.Contains("x:Name=\"PersonTasksList\"", StringComparison.Ordinal));
 }
 
 static void ChecklistPositionRoundTrip()
@@ -274,6 +457,69 @@ static void ProjectMetadataRoundTrip()
     Equal("true", parsed["archived"]);
     Equal("folder", parsed["kind"]);
     Equal("folder1", parsed["parent"]);
+}
+
+static void PersonAssignmentsRoundTrip()
+{
+    var note = new Note
+    {
+        Id = "note-people",
+        Title = "Spotkanie",
+        Tags = ["projekt-x"],
+        People = ["anna-kowalska", "piotr-nowak"]
+    };
+    var parsedNote = FrontMatter.Parse(FrontMatter.WriteNote(note));
+    Equal("projekt-x", parsedNote["tags"]);
+    Equal("anna-kowalska, piotr-nowak", parsedNote["people"]);
+
+    var project = new Project
+    {
+        Id = "project-people",
+        Name = "Wdrożenie",
+        Slug = "wdrozenie",
+        People = ["anna-kowalska"]
+    };
+    var parsedProject = FrontMatter.Parse(FrontMatter.WriteProject(project));
+    Equal("anna-kowalska", parsedProject["people"]);
+}
+
+static void TaskPeopleRoundTrip()
+{
+    const string source = "# Plan\n\n- [ ] Ustalić zakres <!-- people: Anna Kowalska, piotr-nowak -->";
+    var parsed = FrontMatter.Parse(source);
+    Equal(1, parsed.Checklist.Count);
+    Equal("Ustalić zakres", parsed.Checklist[0].Text);
+    Equal("anna-kowalska", parsed.Checklist[0].People[0]);
+    Equal("piotr-nowak", parsed.Checklist[0].People[1]);
+
+    parsed.Checklist[0].People = ["ewa-lis"];
+    var rewritten = FrontMatter.WriteNote(NoteFrom(parsed));
+    True(rewritten.Contains("<!-- people: ewa-lis -->", StringComparison.Ordinal));
+    False(WikiLinkService.ToPreviewLines(FrontMatter.Parse(rewritten).Body)
+        .Any(line => line.Text.Contains("people:", StringComparison.OrdinalIgnoreCase)));
+
+    var blocks = VisualDocumentService.Parse(FrontMatter.Parse(rewritten).Body);
+    Equal("ewa-lis", blocks.Single(block => block.Kind == DocumentBlockKind.Checklist).People.Single());
+    True(VisualDocumentService.Serialize(blocks).Contains("<!-- people: ewa-lis -->", StringComparison.Ordinal));
+}
+
+static void PersonStoreRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new MarkdownStore(temp.Path);
+    var person = store.CreatePerson("Anna Kowalska");
+    person.Role = "Klientka";
+    person.Description = "Prowadzi wdrożenie.";
+    person.AvatarPath = $"Assets/{person.Id}/avatar.png";
+    store.SavePerson(person);
+
+    var loaded = store.LoadPeople().Single();
+    Equal("Anna Kowalska", loaded.Name);
+    Equal("anna-kowalska", loaded.Slug);
+    Equal("Klientka", loaded.Role);
+    Equal("Prowadzi wdrożenie.", loaded.Description);
+    Equal(person.AvatarPath, loaded.AvatarPath);
+    True(File.Exists(Path.Combine(store.PeopleFolder, "anna-kowalska.md")));
 }
 
 static void AtomicSaveCreatesBackup()
@@ -416,6 +662,47 @@ static void AppStateRecoversFromBackup()
     True(store.LastLoadIssue?.RecoveredFromBackup == true);
 }
 
+static void EditorAppearanceRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new AppStateStore(temp.Path);
+    store.Save(new AppState
+    {
+        DataFolder = temp.Path,
+        EditorFont = "Monospace",
+        EditorFontSize = 18
+    });
+
+    var loaded = store.Load();
+    Equal("Monospace", loaded.EditorFont);
+    Equal(18d, loaded.EditorFontSize);
+}
+
+static void SidePanelVisibilityRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new AppStateStore(temp.Path);
+    store.Save(new AppState
+    {
+        DataFolder = temp.Path,
+        SidebarVisible = false,
+        EditorDetailsVisible = false
+    });
+
+    var loaded = store.Load();
+    False(loaded.SidebarVisible);
+    False(loaded.EditorDetailsVisible);
+
+    var root = FindRepositoryRoot();
+    var window = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var windowCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
+    var editorCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml.cs"));
+    True(window.Contains("x:Name=\"SidebarToggleButton\"", StringComparison.Ordinal));
+    True(window.Contains("Click=\"OnToggleEditorDetails\"", StringComparison.Ordinal));
+    True(windowCode.Contains("ApplyShellVisibility", StringComparison.Ordinal));
+    True(editorCode.Contains("SaveEditorDetailsVisibility", StringComparison.Ordinal));
+}
+
 static void CorruptStateWithoutBackupThrows()
 {
     using var temp = new TemporaryDirectory();
@@ -453,6 +740,7 @@ static void BackupContainsOnlyApplicationData()
     var source = Path.Combine(temp.Path, "source");
     var store = new MarkdownStore(source);
     var note = store.CreateNote("Kopia");
+    var person = store.CreatePerson("Anna Kowalska");
     note.Body = "ważna treść";
     store.SaveNote(note);
     var assetFolder = Path.Combine(source, "Assets", note.Id);
@@ -466,6 +754,7 @@ static void BackupContainsOnlyApplicationData()
     var validation = BackupService.Validate(backup);
     True(validation.IsValid, string.Join("; ", validation.Errors));
     True(File.Exists(Path.Combine(backup, "Notes", Path.GetFileName(note.FilePath))));
+    True(File.Exists(Path.Combine(backup, "People", Path.GetFileName(person.FilePath))));
     True(File.Exists(Path.Combine(backup, "Assets", note.Id, "obraz.png")));
     False(File.Exists(Path.Combine(backup, "obcy-sekret.txt")), "Kopia nie może zabierać obcych plików.");
     True(validation.Manifest?.Files.Count >= 2);

@@ -8,7 +8,10 @@ public static class LayoutService
     public const double CanvasHeight = 4000;
     public const double ProjectDiameter = 72;
     public const double NoteDiameter = 36;
-    private const double MinSeparation = 110;
+    // The graph uses labelled cards rather than small dots, so new items need
+    // enough breathing room to keep titles and metadata readable.
+    private const double MinSeparation = 190;
+    private const double CanvasEdgeInset = 110;
 
     public static void PlaceAt(
         Dictionary<string, GraphPosition> positions,
@@ -19,8 +22,8 @@ public static class LayoutService
         positions[id] = new GraphPosition
         {
             Id = id,
-            X = Math.Clamp(x, 40, CanvasWidth - 40),
-            Y = Math.Clamp(y, 40, CanvasHeight - 40)
+            X = Math.Clamp(x, CanvasEdgeInset, CanvasWidth - CanvasEdgeInset),
+            Y = Math.Clamp(y, CanvasEdgeInset, CanvasHeight - CanvasEdgeInset)
         };
     }
 
@@ -40,7 +43,7 @@ public static class LayoutService
             var ring = slot / 8;
             var onRing = slot % 8;
             var angle = (2 * Math.PI * onRing / 8) + 0.35 + (ring * 0.15);
-            var radius = 130 + (ring * 70);
+            var radius = 215 + (ring * 105);
             var x = anchorX + (radius * Math.Cos(angle));
             var y = anchorY + (radius * Math.Sin(angle));
             if (!IsTooClose(positions, id, x, y))
@@ -219,6 +222,28 @@ public static class LayoutService
 
     public static bool NoteLinksTo(Note note, Project project) =>
         note.Tags.Any(tag => string.Equals(tag, project.Slug, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Returns one project and every nested folder/project below it.</summary>
+    public static IReadOnlyList<Project> ProjectSubtree(
+        IReadOnlyList<Project> projects,
+        string rootProjectId)
+    {
+        var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootProjectId };
+        var queue = new Queue<string>();
+        queue.Enqueue(rootProjectId);
+        while (queue.TryDequeue(out var parentId))
+        {
+            foreach (var child in projects.Where(project =>
+                         !included.Contains(project.Id) &&
+                         string.Equals(project.ParentId, parentId, StringComparison.OrdinalIgnoreCase)))
+            {
+                included.Add(child.Id);
+                queue.Enqueue(child.Id);
+            }
+        }
+
+        return projects.Where(project => included.Contains(project.Id)).ToList();
+    }
 
     public static GraphPosition Get(Dictionary<string, GraphPosition> positions, string id)
     {

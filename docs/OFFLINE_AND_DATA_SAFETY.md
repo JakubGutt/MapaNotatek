@@ -19,9 +19,9 @@ Internet może być używany poza uruchomioną aplikacją: deweloper pobiera pak
 
 ## Model danych
 
-Notatki i projekty są zwykłymi plikami Markdown z metadanymi w nagłówku. Załączone obrazy są kopiowane do `Assets/<note-id>/`; aplikacja nie pozostawia notatki zależnej od pierwotnej lokalizacji importowanego pliku. Import przyjmuje rozpoznane obrazy PNG, JPEG, GIF i WebP do 20 MB.
+Notatki, projekty i profile osób są zwykłymi plikami Markdown z metadanymi w nagłówku. Załączone obrazy i awatary są kopiowane do `Assets/<item-id>/`; aplikacja nie pozostawia danych zależnych od pierwotnej lokalizacji importowanego pliku. Import przyjmuje rozpoznane obrazy PNG, JPEG, GIF i WebP do 20 MB.
 
-Domyślny edytor wizualny jest warstwą nad tym samym przenośnym formatem: po zapisie i ponownym otwarciu bloki są odtwarzane z Markdown. Opcjonalny widok źródłowy pozwala skontrolować dokładną treść pliku.
+Edytor komórkowy jest warstwą nad tym samym przenośnym formatem: po zapisie i ponownym otwarciu bloki są odtwarzane z Markdown. Interfejs nie udostępnia osobnego widoku źródłowego; dokładną treść można otrzymać przez eksport do pliku `.md`.
 
 Stan interfejsu jest przechowywany w `app-state.json`. Lokalna historia trafia do `History/` i domyślnie zachowuje do 30 wcześniejszych wersji każdego elementu. Log startowy i ostatni raport awarii, jeśli powstaną, leżą w systemowym folderze tymczasowym. Eksport raportu diagnostycznego odbywa się wyłącznie na żądanie, nie zawiera treści notatek i nie jest nigdzie wysyłany.
 
@@ -43,7 +43,7 @@ Usuwanie notatek i projektów przenosi je do `Trash/`; z poziomu aplikacji możn
 
 Funkcja kopii w ustawieniach:
 
-1. kopiuje wyłącznie `Notes/`, `Projects/`, `Assets/`, `History/`, `Trash/`, `Recovery/` i `app-state.json`;
+1. kopiuje wyłącznie `Notes/`, `Projects/`, `People/`, `Assets/`, `History/`, `Trash/`, `Recovery/` i `app-state.json`;
 2. pomija dowiązania symboliczne;
 3. zapisuje rozmiar i SHA-256 każdego pliku w manifeście;
 4. weryfikuje gotową zawartość przed udostępnieniem folderu kopii;

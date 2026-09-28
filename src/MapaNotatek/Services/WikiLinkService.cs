@@ -58,7 +58,7 @@ public static class WikiLinkService
                     checklist.Groups[1].Value.Equals("x", StringComparison.OrdinalIgnoreCase)
                         ? PreviewLineKind.ChecklistDone
                         : PreviewLineKind.ChecklistOpen,
-                    checklist.Groups[2].Value));
+                    PersonTagService.StripTaskMetadata(checklist.Groups[2].Value)));
             }
             else if (Regex.IsMatch(raw, @"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"))
             {
@@ -117,7 +117,12 @@ public static class WikiLinkService
         }
 
         var pattern = new Regex(
-            @"(\[\[([^\]]+)\]\])|(`([^`]+)`)|(\*\*([^*]+)\*\*)|(~~([^~]+)~~)|(\*([^*]+)\*)",
+            @"(?<wiki>\[\[(?<wikiText>[^\]]+)\]\])|" +
+            @"(?<code>`(?<codeText>[^`]+)`)|" +
+            @"(?<boldItalic>\*\*\*(?<boldItalicText>[^*]+)\*\*\*)|" +
+            @"(?<bold>\*\*(?<boldText>[^*]+)\*\*)|" +
+            @"(?<strike>~~(?<strikeText>[^~]+)~~)|" +
+            @"(?<italic>\*(?<italicText>[^*]+)\*)",
             RegexOptions.Compiled);
         var index = 0;
         foreach (Match match in pattern.Matches(text))
@@ -127,25 +132,29 @@ public static class WikiLinkService
                 yield return new InlinePreviewSpan(text[index..match.Index], false, false, false, false, false);
             }
 
-            if (match.Groups[2].Success)
+            if (match.Groups["wiki"].Success)
             {
-                yield return new InlinePreviewSpan($"[[{match.Groups[2].Value}]]", true, false, false, false, true);
+                yield return new InlinePreviewSpan($"[[{match.Groups["wikiText"].Value}]]", true, false, false, false, true);
             }
-            else if (match.Groups[4].Success)
+            else if (match.Groups["code"].Success)
             {
-                yield return new InlinePreviewSpan(match.Groups[4].Value, false, false, true, false, false);
+                yield return new InlinePreviewSpan(match.Groups["codeText"].Value, false, false, true, false, false);
             }
-            else if (match.Groups[6].Success)
+            else if (match.Groups["boldItalic"].Success)
             {
-                yield return new InlinePreviewSpan(match.Groups[6].Value, true, false, false, false, false);
+                yield return new InlinePreviewSpan(match.Groups["boldItalicText"].Value, true, true, false, false, false);
             }
-            else if (match.Groups[8].Success)
+            else if (match.Groups["bold"].Success)
             {
-                yield return new InlinePreviewSpan(match.Groups[8].Value, false, false, false, true, false);
+                yield return new InlinePreviewSpan(match.Groups["boldText"].Value, true, false, false, false, false);
             }
-            else if (match.Groups[10].Success)
+            else if (match.Groups["strike"].Success)
             {
-                yield return new InlinePreviewSpan(match.Groups[10].Value, false, true, false, false, false);
+                yield return new InlinePreviewSpan(match.Groups["strikeText"].Value, false, false, false, true, false);
+            }
+            else if (match.Groups["italic"].Success)
+            {
+                yield return new InlinePreviewSpan(match.Groups["italicText"].Value, false, true, false, false, false);
             }
 
             index = match.Index + match.Length;

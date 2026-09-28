@@ -384,30 +384,80 @@ public static class NoteExportService
 
     private static void WritePdfCore(Note note, string path)
     {
-        const float pageWidth = 595;
-        const float pageHeight = 842;
-        const float margin = 52;
-        const float contentWidth = pageWidth - margin * 2;
-        const float bottom = pageHeight - margin;
+        const float pageWidth = 595.28f;
+        const float pageHeight = 841.89f;
+        const float margin = 48;
+        const float contentTop = 56;
+        const float contentBottom = pageHeight - 52;
+        const float contentWidth = pageWidth - (margin * 2);
+        var textColor = new SKColor(31, 41, 55);
+        var mutedColor = new SKColor(100, 116, 139);
+        var accentColor = new SKColor(37, 99, 235);
+        var subtleBorder = new SKColor(203, 213, 225);
+        var surfaceColor = new SKColor(248, 250, 252);
 
         using var document = SKDocument.CreatePdf(path)
             ?? throw new IOException("Nie można utworzyć dokumentu PDF.");
-        var regular = LoadTypeface("Inter-Regular.ttf");
-        var semibold = LoadTypeface("Inter-SemiBold.ttf");
-        var mono = SKTypeface.FromFamilyName("Menlo") ?? SKTypeface.FromFamilyName("Consolas") ?? regular;
-        using var textPaint = new SKPaint { IsAntialias = true, Color = new SKColor(31, 38, 50) };
-        using var mutedPaint = new SKPaint { IsAntialias = true, Color = new SKColor(102, 112, 128) };
+        using var regular = LoadTypeface("Inter-Regular.ttf");
+        using var semibold = LoadTypeface("Inter-SemiBold.ttf");
+        using var bold = LoadTypeface("Inter-Bold.ttf");
+        using var mono = SKTypeface.FromFamilyName("Menlo") ??
+                         SKTypeface.FromFamilyName("Consolas") ??
+                         LoadTypeface("Inter-Regular.ttf");
 
         SKCanvas? canvas = null;
         var pageNumber = 0;
-        var y = margin;
+        var y = contentTop;
+
+        SKFont CreateFont(PdfRunStyle style, float size)
+        {
+            var typeface = style.Code ? mono : style.Bold ? semibold : regular;
+            var font = new SKFont(typeface, size);
+            if (style.Italic)
+            {
+                font.SkewX = -0.18f;
+            }
+
+            return font;
+        }
+
+        string FitText(string text, SKFont font, SKPaint paint, float maxWidth)
+        {
+            if (font.MeasureText(text, paint) <= maxWidth)
+            {
+                return text;
+            }
+
+            const string suffix = "...";
+            var length = text.Length;
+            while (length > 0 && font.MeasureText(text[..length] + suffix, paint) > maxWidth)
+            {
+                length--;
+            }
+
+            return text[..length] + suffix;
+        }
 
         void BeginPage()
         {
             canvas = document.BeginPage(pageWidth, pageHeight);
             canvas.Clear(SKColors.White);
             pageNumber++;
-            y = margin;
+            using var headerFont = new SKFont(semibold, 8.2f);
+            using var headerPaint = CreatePaint(mutedColor);
+            var header = pageNumber == 1 ? "MAPANOTATEK - EKSPORT PDF" : DisplayTitle(note);
+            canvas.DrawText(
+                FitText(header, headerFont, headerPaint, contentWidth),
+                margin,
+                28,
+                SKTextAlign.Left,
+                headerFont,
+                headerPaint);
+            using var accentPaint = CreatePaint(accentColor);
+            canvas.DrawRect(margin, 38, 54, 2.5f, accentPaint);
+            using var linePaint = CreatePaint(new SKColor(226, 232, 240));
+            canvas.DrawRect(margin + 60, 39, contentWidth - 60, 0.8f, linePaint);
+            y = contentTop;
         }
 
         void EndPage()
@@ -417,15 +467,12 @@ public static class NoteExportService
                 return;
             }
 
-            using var footerFont = new SKFont(regular, 8.5f);
+            using var footerFont = new SKFont(regular, 8.2f);
             using var footerPaint = CreatePaint(new SKColor(130, 138, 150));
-            canvas.DrawText(
-                $"{DisplayTitle(note)}  ·  {pageNumber}",
-                margin,
-                pageHeight - 22,
-                SKTextAlign.Left,
-                footerFont,
-                footerPaint);
+            using var footerLine = CreatePaint(new SKColor(226, 232, 240));
+            canvas.DrawRect(margin, pageHeight - 39, contentWidth, 0.8f, footerLine);
+            canvas.DrawText("Offline - dane lokalne", margin, pageHeight - 22, SKTextAlign.Left, footerFont, footerPaint);
+            canvas.DrawText(pageNumber.ToString(), pageWidth - margin, pageHeight - 22, SKTextAlign.Right, footerFont, footerPaint);
             document.EndPage();
             canvas = null;
         }
@@ -436,110 +483,648 @@ public static class NoteExportService
             {
                 BeginPage();
             }
-            else if (y + required > bottom)
+            else if (y + required > contentBottom)
             {
                 EndPage();
                 BeginPage();
             }
         }
 
-        void DrawWrapped(string text, float size, bool bold = false, bool isMuted = false, float indent = 0, bool isCode = false, float after = 7)
+        float MeasureRun(string text, PdfRunStyle style, float size)
         {
-            var typeface = isCode ? mono : bold ? semibold : regular;
-            var color = isMuted ? mutedPaint.Color : textPaint.Color;
-            using var font = new SKFont(typeface, size);
-            using var paint = CreatePaint(color);
-            var lineHeight = size * 1.45f;
-            var lines = WrapText(text, font, paint, contentWidth - indent);
-            if (lines.Count == 0)
+            using var font = CreateFont(style, size);
+            using var paint = CreatePaint(textColor);
+            return font.MeasureText(text, paint) + (style.Code ? 4 : 0);
+        }
+
+        List<PdfInlineLine> WrapInline(string text, float size, float maxWidth, bool baseBold = false, bool baseItalic = false)
+        {
+            var lines = new List<PdfInlineLine> { new() };
+            var spans = WikiLinkService.ParseInlineSpans(text).ToList();
+            if (spans.Count == 0 && text.Length > 0)
             {
-                EnsureSpace(lineHeight);
-                y += lineHeight;
-                return;
+                spans.Add(new InlinePreviewSpan(text, false, false, false, false, false));
             }
 
-            foreach (var wrapped in lines)
+            void NewLine()
+            {
+                if (lines[^1].Runs.Count > 0)
+                {
+                    lines.Add(new PdfInlineLine());
+                }
+            }
+
+            void AddToken(string token, PdfRunStyle style)
+            {
+                if (token.Length == 0)
+                {
+                    return;
+                }
+
+                var whitespace = string.IsNullOrWhiteSpace(token);
+                if (whitespace)
+                {
+                    token = " ";
+                    if (lines[^1].Runs.Count == 0)
+                    {
+                        return;
+                    }
+                }
+
+                var width = MeasureRun(token, style, size);
+                if (lines[^1].Width + width <= maxWidth)
+                {
+                    lines[^1].Runs.Add(new PdfInlineRun(token, style, width));
+                    lines[^1].Width += width;
+                    return;
+                }
+
+                if (whitespace)
+                {
+                    NewLine();
+                    return;
+                }
+
+                if (lines[^1].Runs.Count > 0)
+                {
+                    NewLine();
+                }
+
+                if (width <= maxWidth)
+                {
+                    lines[^1].Runs.Add(new PdfInlineRun(token, style, width));
+                    lines[^1].Width += width;
+                    return;
+                }
+
+                var fragment = new StringBuilder();
+                foreach (var character in token)
+                {
+                    var candidate = fragment.ToString() + character;
+                    if (fragment.Length > 0 && MeasureRun(candidate, style, size) > maxWidth)
+                    {
+                        var part = fragment.ToString();
+                        var partWidth = MeasureRun(part, style, size);
+                        lines[^1].Runs.Add(new PdfInlineRun(part, style, partWidth));
+                        lines[^1].Width += partWidth;
+                        NewLine();
+                        fragment.Clear();
+                    }
+
+                    fragment.Append(character);
+                }
+
+                if (fragment.Length > 0)
+                {
+                    var part = fragment.ToString();
+                    var partWidth = MeasureRun(part, style, size);
+                    lines[^1].Runs.Add(new PdfInlineRun(part, style, partWidth));
+                    lines[^1].Width += partWidth;
+                }
+            }
+
+            foreach (var span in spans)
+            {
+                var style = new PdfRunStyle(
+                    baseBold || span.Bold,
+                    baseItalic || span.Italic,
+                    span.Code,
+                    span.Strike,
+                    span.Wiki);
+                var spanText = span.Wiki && span.Text.StartsWith("[[", StringComparison.Ordinal) && span.Text.EndsWith("]]", StringComparison.Ordinal)
+                    ? span.Text[2..^2]
+                    : span.Text;
+                foreach (Match token in Regex.Matches(spanText, @"\s+|\S+"))
+                {
+                    AddToken(token.Value, style);
+                }
+            }
+
+            if (lines.Count > 1 && lines[^1].Runs.Count == 0)
+            {
+                lines.RemoveAt(lines.Count - 1);
+            }
+
+            return lines;
+        }
+
+        void DrawInlineLine(PdfInlineLine line, float x, float baseline, float size, SKColor color)
+        {
+            foreach (var run in line.Runs)
+            {
+                using var font = CreateFont(run.Style, size);
+                var runColor = run.Style.Wiki ? accentColor : color;
+                using var paint = CreatePaint(runColor);
+                if (run.Style.Code)
+                {
+                    var glyphWidth = font.MeasureText(run.Text, paint);
+                    using var codeBackground = CreatePaint(new SKColor(226, 232, 240));
+                    canvas!.DrawRoundRect(
+                        new SKRect(x - 2, baseline - (size * 0.9f), x + glyphWidth + 2, baseline + (size * 0.28f)),
+                        2.5f,
+                        2.5f,
+                        codeBackground);
+                }
+
+                canvas!.DrawText(run.Text, x, baseline, SKTextAlign.Left, font, paint);
+                if (run.Style.Strike)
+                {
+                    using var strike = CreatePaint(runColor);
+                    strike.StrokeWidth = 0.8f;
+                    canvas.DrawLine(x, baseline - (size * 0.32f), x + run.Width, baseline - (size * 0.32f), strike);
+                }
+
+                x += run.Width;
+            }
+        }
+
+        void DrawRichWrapped(
+            string text,
+            float size,
+            bool boldText = false,
+            bool italicText = false,
+            bool muted = false,
+            float indent = 0,
+            string marker = "",
+            float after = 7,
+            float before = 0)
+        {
+            if (before > 0 && y > contentTop + 1)
+            {
+                y += before;
+            }
+
+            using var markerFont = new SKFont(regular, size);
+            using var markerPaint = CreatePaint(textColor);
+            var markerWidth = marker.Length == 0 ? 0 : Math.Max(18, markerFont.MeasureText(marker, markerPaint) + 7);
+            var lineHeight = size * 1.48f;
+            var lines = WrapInline(text, size, Math.Max(24, contentWidth - indent - markerWidth), boldText, italicText);
+            EnsureSpace((lineHeight * Math.Min(2, Math.Max(1, lines.Count))) + after);
+            for (var index = 0; index < lines.Count; index++)
             {
                 EnsureSpace(lineHeight);
-                canvas!.DrawText(wrapped, margin + indent, y + size, SKTextAlign.Left, font, paint);
+                var baseline = y + size;
+                if (index == 0 && marker.Length > 0)
+                {
+                    canvas!.DrawText(marker, margin + indent, baseline, SKTextAlign.Left, markerFont, markerPaint);
+                }
+
+                DrawInlineLine(
+                    lines[index],
+                    margin + indent + markerWidth,
+                    baseline,
+                    size,
+                    muted ? mutedColor : textColor);
                 y += lineHeight;
             }
 
             y += after;
         }
 
-        BeginPage();
-        DrawWrapped(DisplayTitle(note), 23, bold: true, after: 12);
-        if (note.Tags.Count > 0)
+        void DrawTags()
         {
-            DrawWrapped("Tagi: " + string.Join(", ", note.Tags), 9.5f, isMuted: true, after: 18);
+            if (note.Tags.Count == 0)
+            {
+                return;
+            }
+
+            using var font = new SKFont(semibold, 8.3f);
+            using var textPaint = CreatePaint(new SKColor(30, 64, 175));
+            using var fill = CreatePaint(new SKColor(239, 246, 255));
+            using var border = CreatePaint(new SKColor(191, 219, 254));
+            border.Style = SKPaintStyle.Stroke;
+            border.StrokeWidth = 0.8f;
+            var x = margin;
+            const float height = 20;
+            EnsureSpace(height + 12);
+            foreach (var tag in note.Tags)
+            {
+                var label = tag.Trim();
+                if (label.Length == 0)
+                {
+                    continue;
+                }
+
+                var width = Math.Min(contentWidth, font.MeasureText(label, textPaint) + 16);
+                if (x > margin && x + width > pageWidth - margin)
+                {
+                    y += height + 5;
+                    EnsureSpace(height + 8);
+                    x = margin;
+                }
+
+                var rect = new SKRect(x, y, x + width, y + height);
+                canvas!.DrawRoundRect(rect, 10, 10, fill);
+                canvas.DrawRoundRect(rect, 10, 10, border);
+                canvas.DrawText(FitText(label, font, textPaint, width - 16), x + 8, y + 13.3f, SKTextAlign.Left, font, textPaint);
+                x += width + 6;
+            }
+
+            y += height + 13;
         }
 
-        var inCodeBlock = false;
-        foreach (var rawLine in (note.Body ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+        void DrawQuote(string text)
         {
+            const float size = 10.5f;
+            var lineHeight = size * 1.5f;
+            var lines = WrapInline(text, size, contentWidth - 32, baseItalic: true);
+            var offset = 0;
+            while (offset < Math.Max(1, lines.Count))
+            {
+                EnsureSpace(lineHeight + 18);
+                var fit = Math.Max(1, (int)Math.Floor((contentBottom - y - 16) / lineHeight));
+                var count = Math.Min(fit, Math.Max(1, lines.Count - offset));
+                var height = (count * lineHeight) + 16;
+                using var fill = CreatePaint(new SKColor(248, 250, 252));
+                using var accent = CreatePaint(new SKColor(96, 165, 250));
+                canvas!.DrawRoundRect(new SKRect(margin, y, pageWidth - margin, y + height), 6, 6, fill);
+                canvas.DrawRoundRect(new SKRect(margin, y, margin + 3, y + height), 1.5f, 1.5f, accent);
+                for (var lineIndex = 0; lineIndex < count && offset + lineIndex < lines.Count; lineIndex++)
+                {
+                    DrawInlineLine(lines[offset + lineIndex], margin + 18, y + 8 + size + (lineIndex * lineHeight), size, new SKColor(71, 85, 105));
+                }
+
+                y += height + 9;
+                offset += count;
+                if (offset < lines.Count)
+                {
+                    EndPage();
+                    BeginPage();
+                }
+            }
+        }
+
+        void DrawCodeBlock(string language, IReadOnlyList<string> sourceLines)
+        {
+            const float size = 8.8f;
+            const float lineHeight = 13.2f;
+            const float padding = 12;
+            using var font = new SKFont(mono, size);
+            using var paint = CreatePaint(new SKColor(226, 232, 240));
+            var wrapped = new List<string>();
+            foreach (var sourceLine in sourceLines.Count == 0 ? [string.Empty] : sourceLines)
+            {
+                wrapped.AddRange(WrapText(sourceLine.Replace("\t", "    ", StringComparison.Ordinal), font, paint, contentWidth - (padding * 2)));
+            }
+
+            var offset = 0;
+            var firstChunk = true;
+            while (offset < wrapped.Count)
+            {
+                var labelHeight = firstChunk && !string.IsNullOrWhiteSpace(language) ? 18 : 0;
+                EnsureSpace(lineHeight + (padding * 2) + labelHeight);
+                var maxLines = Math.Max(1, (int)Math.Floor((contentBottom - y - (padding * 2) - labelHeight) / lineHeight));
+                var count = Math.Min(maxLines, wrapped.Count - offset);
+                var height = (count * lineHeight) + (padding * 2) + labelHeight;
+                using var background = CreatePaint(new SKColor(15, 23, 42));
+                canvas!.DrawRoundRect(new SKRect(margin, y, pageWidth - margin, y + height), 7, 7, background);
+                if (labelHeight > 0)
+                {
+                    using var labelFont = new SKFont(semibold, 7.8f);
+                    using var labelPaint = CreatePaint(new SKColor(148, 163, 184));
+                    canvas.DrawText(language.ToUpperInvariant(), margin + padding, y + 13, SKTextAlign.Left, labelFont, labelPaint);
+                }
+
+                var baseline = y + padding + labelHeight + size;
+                for (var lineIndex = 0; lineIndex < count; lineIndex++)
+                {
+                    canvas.DrawText(wrapped[offset + lineIndex], margin + padding, baseline + (lineIndex * lineHeight), SKTextAlign.Left, font, paint);
+                }
+
+                y += height + 10;
+                offset += count;
+                firstChunk = false;
+                if (offset < wrapped.Count)
+                {
+                    EndPage();
+                    BeginPage();
+                }
+            }
+        }
+
+        void DrawTable(IReadOnlyList<string[]> sourceRows)
+        {
+            if (sourceRows.Count == 0)
+            {
+                return;
+            }
+
+            var columnCount = Math.Max(1, sourceRows.Max(row => row.Length));
+            var fontSize = columnCount switch
+            {
+                <= 3 => 8.9f,
+                <= 5 => 8.1f,
+                <= 7 => 7.3f,
+                _ => 6.5f
+            };
+            var lineHeight = fontSize * 1.42f;
+            const float cellPadding = 7;
+            using var bodyFont = new SKFont(regular, fontSize);
+            using var bodyPaint = CreatePaint(textColor);
+            var naturalWidths = new float[columnCount];
+            for (var column = 0; column < columnCount; column++)
+            {
+                naturalWidths[column] = 54;
+                foreach (var row in sourceRows.Take(40))
+                {
+                    var value = column < row.Length ? StripInlineMarkdown(row[column]) : string.Empty;
+                    naturalWidths[column] = Math.Max(
+                        naturalWidths[column],
+                        Math.Min(190, bodyFont.MeasureText(value, bodyPaint) + (cellPadding * 2)));
+                }
+            }
+
+            var naturalTotal = naturalWidths.Sum();
+            var widths = naturalWidths.Select(width => contentWidth * width / naturalTotal).ToArray();
+
+            List<List<string>> WrapRow(string[] row)
+            {
+                var cells = new List<List<string>>(columnCount);
+                for (var column = 0; column < columnCount; column++)
+                {
+                    var value = column < row.Length ? StripInlineMarkdown(row[column]) : string.Empty;
+                    cells.Add(WrapText(value, bodyFont, bodyPaint, Math.Max(12, widths[column] - (cellPadding * 2))));
+                }
+
+                return cells;
+            }
+
+            var header = WrapRow(sourceRows[0]);
+
+            float RowHeight(IReadOnlyList<List<string>> cells, int offset = 0) =>
+                Math.Max(1, cells.Max(cell => Math.Max(0, cell.Count - offset))) * lineHeight + (cellPadding * 2);
+
+            void DrawRowChunk(IReadOnlyList<List<string>> cells, int lineOffset, int lineCount, bool isHeader, bool alternate)
+            {
+                var height = Math.Max(1, lineCount) * lineHeight + (cellPadding * 2);
+                var x = margin;
+                using var fill = CreatePaint(isHeader
+                    ? new SKColor(219, 234, 254)
+                    : alternate ? new SKColor(248, 250, 252) : SKColors.White);
+                using var border = CreatePaint(subtleBorder);
+                border.Style = SKPaintStyle.Stroke;
+                border.StrokeWidth = 0.8f;
+                using var headerFont = new SKFont(semibold, fontSize);
+                using var headerPaint = CreatePaint(new SKColor(30, 64, 175));
+                for (var column = 0; column < columnCount; column++)
+                {
+                    var rect = new SKRect(x, y, x + widths[column], y + height);
+                    canvas!.DrawRect(rect, fill);
+                    canvas.DrawRect(rect, border);
+                    var cellLines = cells[column];
+                    for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
+                    {
+                        var sourceIndex = lineOffset + lineIndex;
+                        if (sourceIndex >= cellLines.Count)
+                        {
+                            break;
+                        }
+
+                        canvas.DrawText(
+                            cellLines[sourceIndex],
+                            x + cellPadding,
+                            y + cellPadding + fontSize + (lineIndex * lineHeight),
+                            SKTextAlign.Left,
+                            isHeader ? headerFont : bodyFont,
+                            isHeader ? headerPaint : bodyPaint);
+                    }
+
+                    x += widths[column];
+                }
+
+                y += height;
+            }
+
+            void DrawHeader()
+            {
+                var headerLines = Math.Max(1, header.Max(cell => cell.Count));
+                DrawRowChunk(header, 0, headerLines, isHeader: true, alternate: false);
+            }
+
+            var headerHeight = RowHeight(header);
+            EnsureSpace(headerHeight + lineHeight + (cellPadding * 2));
+            DrawHeader();
+            for (var rowIndex = 1; rowIndex < sourceRows.Count; rowIndex++)
+            {
+                var cells = WrapRow(sourceRows[rowIndex]);
+                var totalLines = Math.Max(1, cells.Max(cell => cell.Count));
+                var fullHeight = totalLines * lineHeight + (cellPadding * 2);
+                if (fullHeight <= contentBottom - contentTop - headerHeight && y + fullHeight > contentBottom)
+                {
+                    EndPage();
+                    BeginPage();
+                    DrawHeader();
+                }
+
+                var offset = 0;
+                while (offset < totalLines)
+                {
+                    var availableLines = (int)Math.Floor((contentBottom - y - (cellPadding * 2)) / lineHeight);
+                    if (availableLines < 1)
+                    {
+                        EndPage();
+                        BeginPage();
+                        DrawHeader();
+                        availableLines = Math.Max(1, (int)Math.Floor((contentBottom - y - (cellPadding * 2)) / lineHeight));
+                    }
+
+                    var count = Math.Min(availableLines, totalLines - offset);
+                    DrawRowChunk(cells, offset, count, isHeader: false, alternate: rowIndex % 2 == 0);
+                    offset += count;
+                    if (offset < totalLines)
+                    {
+                        EndPage();
+                        BeginPage();
+                        DrawHeader();
+                    }
+                }
+            }
+
+            y += 12;
+        }
+
+        void DrawImage(Match imageMatch)
+        {
+            var alt = imageMatch.Groups[1].Value.Trim();
+            if (!TryResolveLocalImage(note, imageMatch.Groups[2].Value, out var imagePath))
+            {
+                DrawRichWrapped($"Brak lokalnego obrazu: {alt}", 9.5f, italicText: true, muted: true, after: 10);
+                return;
+            }
+
+            using var bitmap = SKBitmap.Decode(imagePath);
+            if (bitmap is null || bitmap.Width <= 0 || bitmap.Height <= 0)
+            {
+                DrawRichWrapped($"Nie można odczytać obrazu: {alt}", 9.5f, italicText: true, muted: true, after: 10);
+                return;
+            }
+
+            var width = Math.Min(contentWidth * 0.92f, bitmap.Width);
+            var height = width * bitmap.Height / bitmap.Width;
+            var maxHeight = contentBottom - contentTop - 36;
+            if (height > maxHeight)
+            {
+                height = maxHeight;
+                width = height * bitmap.Width / bitmap.Height;
+            }
+
+            if (y + height + 28 > contentBottom && y > contentTop + 1)
+            {
+                EndPage();
+                BeginPage();
+            }
+
+            var x = margin + ((contentWidth - width) / 2);
+            using var imageBorder = CreatePaint(subtleBorder);
+            imageBorder.Style = SKPaintStyle.Stroke;
+            imageBorder.StrokeWidth = 0.8f;
+            canvas!.DrawBitmap(bitmap, new SKRect(x, y, x + width, y + height));
+            canvas.DrawRect(new SKRect(x, y, x + width, y + height), imageBorder);
+            y += height + 6;
+            if (alt.Length > 0)
+            {
+                DrawRichWrapped(alt, 8.5f, italicText: true, muted: true, after: 10);
+            }
+            else
+            {
+                y += 10;
+            }
+        }
+
+        BeginPage();
+        DrawRichWrapped(DisplayTitle(note), 24, boldText: true, after: 7);
+        DrawRichWrapped(
+            $"Utworzono {note.Created:yyyy-MM-dd}  |  Zmieniono {note.Modified:yyyy-MM-dd}",
+            8.6f,
+            muted: true,
+            after: note.Tags.Count > 0 ? 9 : 18);
+        DrawTags();
+
+        var lines = (note.Body ?? string.Empty).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var rawLine = lines[index];
             if (rawLine.TrimStart().StartsWith("```", StringComparison.Ordinal))
             {
-                inCodeBlock = !inCodeBlock;
+                var language = rawLine.Trim()[3..].Trim();
+                var codeLines = new List<string>();
+                index++;
+                while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
+                {
+                    codeLines.Add(lines[index]);
+                    index++;
+                }
+
+                DrawCodeBlock(language, codeLines);
                 continue;
             }
 
-            if (inCodeBlock)
+            if (index + 1 < lines.Length && LooksLikeTableRow(rawLine) && TableSeparator.IsMatch(lines[index + 1]))
             {
-                DrawWrapped(rawLine, 9.5f, isCode: true, after: 2);
+                var rows = new List<string[]> { SplitTableRow(rawLine) };
+                index += 2;
+                while (index < lines.Length && LooksLikeTableRow(lines[index]) && !TableSeparator.IsMatch(lines[index]))
+                {
+                    rows.Add(SplitTableRow(lines[index]));
+                    index++;
+                }
+
+                index--;
+                DrawTable(rows);
                 continue;
             }
 
             var imageMatch = ImageLine.Match(rawLine);
             if (imageMatch.Success)
             {
-                if (TryResolveLocalImage(note, imageMatch.Groups[2].Value, out var imagePath))
-                {
-                    using var bitmap = SKBitmap.Decode(imagePath);
-                    if (bitmap is not null && bitmap.Width > 0 && bitmap.Height > 0)
-                    {
-                        var width = Math.Min(contentWidth, bitmap.Width);
-                        var height = width * bitmap.Height / bitmap.Width;
-                        var maxHeight = pageHeight - margin * 2 - 24;
-                        if (height > maxHeight)
-                        {
-                            height = maxHeight;
-                            width = height * bitmap.Width / bitmap.Height;
-                        }
-
-                        EnsureSpace(height + 18);
-                        canvas!.DrawBitmap(bitmap, new SKRect(margin, y, margin + width, y + height));
-                        y += height + 18;
-                        continue;
-                    }
-                }
-
-                DrawWrapped($"[Brak lokalnego obrazu: {imageMatch.Groups[1].Value}]", 10, isMuted: true);
+                DrawImage(imageMatch);
                 continue;
             }
 
-            var (text, style, prefix, italic, code) = ClassifyMarkdownLine(rawLine);
-            _ = italic;
-            var size = style switch
+            if (rawLine.Trim() is "---" or "***" or "___")
             {
-                "Heading1" => 18,
-                "Heading2" => 15,
-                "Heading3" => 12.5f,
-                _ => code ? 9.5f : 10.5f
-            };
-            DrawWrapped(prefix + StripInlineMarkdown(text), size,
-                bold: style is not null,
-                indent: prefix.Length > 0 ? 12 : 0,
-                isCode: code,
-                after: string.IsNullOrWhiteSpace(rawLine) ? 2 : 6);
+                EnsureSpace(18);
+                using var rule = CreatePaint(subtleBorder);
+                canvas!.DrawRect(margin, y + 5, contentWidth, 1, rule);
+                y += 18;
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(rawLine))
+            {
+                y += 4;
+                continue;
+            }
+
+            if (rawLine.StartsWith("### ", StringComparison.Ordinal))
+            {
+                EnsureSpace(54);
+                DrawRichWrapped(rawLine[4..], 12.5f, boldText: true, after: 5, before: 6);
+                continue;
+            }
+
+            if (rawLine.StartsWith("## ", StringComparison.Ordinal))
+            {
+                EnsureSpace(70);
+                DrawRichWrapped(rawLine[3..], 15.5f, boldText: true, after: 7, before: 9);
+                continue;
+            }
+
+            if (rawLine.StartsWith("# ", StringComparison.Ordinal))
+            {
+                EnsureSpace(78);
+                DrawRichWrapped(rawLine[2..], 19, boldText: true, after: 8, before: 11);
+                continue;
+            }
+
+            if (rawLine.StartsWith("> ", StringComparison.Ordinal) || rawLine.Trim() == ">")
+            {
+                DrawQuote(rawLine.Length > 1 ? rawLine[1..].TrimStart() : string.Empty);
+                continue;
+            }
+
+            var task = Regex.Match(rawLine, @"^\s*[-*]\s+\[([ xX])\]\s*(.*)$");
+            if (task.Success)
+            {
+                DrawRichWrapped(
+                    PersonTagService.StripTaskMetadata(task.Groups[2].Value),
+                    10.3f,
+                    muted: !string.Equals(task.Groups[1].Value, " ", StringComparison.Ordinal),
+                    indent: 10,
+                    marker: task.Groups[1].Value == " " ? "[ ]" : "[x]",
+                    after: 3);
+                continue;
+            }
+
+            var bullet = Regex.Match(rawLine, @"^\s*[-*]\s+(.*)$");
+            if (bullet.Success)
+            {
+                DrawRichWrapped(bullet.Groups[1].Value, 10.5f, indent: 10, marker: "•", after: 3);
+                continue;
+            }
+
+            var numbered = Regex.Match(rawLine, @"^\s*(\d+)[.)]\s+(.*)$");
+            if (numbered.Success)
+            {
+                DrawRichWrapped(numbered.Groups[2].Value, 10.5f, indent: 10, marker: numbered.Groups[1].Value + ".", after: 3);
+                continue;
+            }
+
+            DrawRichWrapped(rawLine, 10.5f, after: 6);
         }
 
         if (note.Checklist.Count > 0 && !ContainsChecklist(note.Body))
         {
-            DrawWrapped("Checklista", 15, bold: true, after: 8);
+            DrawRichWrapped("Checklista", 15.5f, boldText: true, after: 7, before: 10);
             foreach (var item in note.Checklist)
             {
-                DrawWrapped($"{(item.IsDone ? "[x]" : "[ ]")} {item.Text}", 10.5f, indent: 12, after: 3);
+                DrawRichWrapped(
+                    item.Text,
+                    10.3f,
+                    muted: item.IsDone,
+                    indent: 10,
+                    marker: item.IsDone ? "[x]" : "[ ]",
+                    after: 3);
             }
         }
 
@@ -723,7 +1308,7 @@ public static class NoteExportService
 
                 var mark = task.Groups[1].Value == " " ? "☐" : "☑";
                 builder.Append("<li class=\"task\">").Append(mark).Append(' ')
-                    .Append(FormatHtmlInline(task.Groups[2].Value)).Append("</li>");
+                    .Append(FormatHtmlInline(PersonTagService.StripTaskMetadata(task.Groups[2].Value))).Append("</li>");
                 continue;
             }
 
@@ -904,7 +1489,7 @@ public static class NoteExportService
         if (line.StartsWith("> ", StringComparison.Ordinal)) return (line[2..], null, "„ ", true, false);
         if (line.StartsWith("```", StringComparison.Ordinal)) return (string.Empty, null, string.Empty, false, true);
         var task = Regex.Match(line, @"^\s*[-*]\s+\[([ xX])\]\s*(.*)$");
-        if (task.Success) return (task.Groups[2].Value, null, task.Groups[1].Value == " " ? "☐ " : "☑ ", false, false);
+        if (task.Success) return (PersonTagService.StripTaskMetadata(task.Groups[2].Value), null, task.Groups[1].Value == " " ? "☐ " : "☑ ", false, false);
         var bullet = Regex.Match(line, @"^\s*[-*]\s+(.*)$");
         if (bullet.Success) return (bullet.Groups[1].Value, null, "• ", false, false);
         var numbered = Regex.Match(line, @"^\s*(\d+)\.\s+(.*)$");
@@ -991,6 +1576,21 @@ public static class NoteExportService
 
             throw;
         }
+    }
+
+    private readonly record struct PdfRunStyle(
+        bool Bold,
+        bool Italic,
+        bool Code,
+        bool Strike,
+        bool Wiki);
+
+    private readonly record struct PdfInlineRun(string Text, PdfRunStyle Style, float Width);
+
+    private sealed class PdfInlineLine
+    {
+        public List<PdfInlineRun> Runs { get; } = [];
+        public float Width { get; set; }
     }
 
     private sealed record ExportImage(

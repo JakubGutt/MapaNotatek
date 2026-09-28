@@ -8,6 +8,7 @@ public enum StorageArea
 {
     Projects,
     Notes,
+    People,
     Trash,
     AppState
 }
@@ -54,6 +55,7 @@ public sealed class MarkdownStore
     public string Root { get; private set; }
     public string ProjectsFolder => Path.Combine(Root, "Projects");
     public string NotesFolder => Path.Combine(Root, "Notes");
+    public string PeopleFolder => Path.Combine(Root, "People");
     public string TrashFolder => Path.Combine(Root, "Trash");
     public string TrashedProjectsFolder => Path.Combine(TrashFolder, "Projects");
 
@@ -112,6 +114,33 @@ public sealed class MarkdownStore
         return LoadNotesFromFolder(NotesFolder, StorageArea.Notes)
             .OrderByDescending(note => note.Modified)
             .ToList();
+    }
+
+    public List<Person> LoadPeople()
+    {
+        ClearIssues(StorageArea.People);
+        var people = new List<Person>();
+        foreach (var file in EnumerateMarkdownFiles(PeopleFolder, StorageArea.People))
+        {
+            try
+            {
+                SafeFileStorage.ValidateContainedFilePath(PeopleFolder, file);
+                people.Add(ReadPerson(file));
+            }
+            catch (Exception primaryError)
+            {
+                if (TryReadPersonBackup(file, primaryError, out var recovered))
+                {
+                    people.Add(recovered!);
+                }
+                else if (!HasIssue(StorageArea.People, file))
+                {
+                    ReportIssue(StorageArea.People, file, "Nie można odczytać pliku osoby.", primaryError);
+                }
+            }
+        }
+
+        return people.OrderBy(person => person.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     public List<Note> LoadTrashedNotes()
@@ -189,6 +218,23 @@ public sealed class MarkdownStore
         return note;
     }
 
+    public Person CreatePerson(string name)
+    {
+        var safeName = string.IsNullOrWhiteSpace(name) ? "Nowa osoba" : name.Trim();
+        var existingSlugs = LoadPeople().Select(person => person.Slug);
+        var now = DateTimeOffset.Now;
+        var person = new Person
+        {
+            Id = SlugHelper.NewId(),
+            Name = safeName,
+            Slug = SlugHelper.Unique(SlugHelper.FromName(safeName), existingSlugs),
+            Created = now,
+            Modified = now
+        };
+        SavePerson(person);
+        return person;
+    }
+
     public void SaveProject(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -223,6 +269,24 @@ public sealed class MarkdownStore
         WriteDocument(path, previousPath, NotesFolder, content, note.PersistedContentHash);
         note.FilePath = path;
         note.PersistedContentHash = ComputeHash(content);
+    }
+
+    public void SavePerson(Person person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        SafeFileStorage.ValidateFileToken(person.Id, "identyfikator osoby");
+        SafeFileStorage.ValidateFileToken(person.Slug, "slug osoby");
+
+        var path = SafeFileStorage.GetContainedFilePath(PeopleFolder, $"{person.Slug}.md");
+        var previousPath = ValidatePreviousPath(PeopleFolder, person.FilePath);
+        EnsureTargetIsAvailable(path, previousPath);
+        EnsureUnchanged(previousPath, person.PersistedContentHash);
+
+        person.Modified = DateTimeOffset.Now;
+        var content = FrontMatter.WritePerson(person);
+        WriteDocument(path, previousPath, PeopleFolder, content, person.PersistedContentHash);
+        person.FilePath = path;
+        person.PersistedContentHash = ComputeHash(content);
     }
 
     public void MoveNoteToTrash(Note note)
@@ -418,6 +482,7 @@ public sealed class MarkdownStore
             Name = name,
             Slug = slug,
             Description = parsed.Body,
+            People = PersonTagService.Parse(parsed["people"]),
             Checklist = parsed.Checklist,
             IsArchived = FrontMatter.ReadBool(parsed["archived"]),
             ParentId = parentId,
@@ -452,7 +517,44 @@ public sealed class MarkdownStore
             Title = title,
             Body = parsed.Body,
             Tags = FrontMatter.SplitTags(parsed["tags"]),
+            People = PersonTagService.Parse(parsed["people"]),
             Checklist = parsed.Checklist,
+            Created = FrontMatter.ReadDate(parsed["created"], File.GetCreationTime(path)),
+            Modified = FrontMatter.ReadDate(parsed["modified"], File.GetLastWriteTime(path)),
+            FilePath = documentPath,
+            PersistedContentHash = ComputePersistedHash(documentPath, content)
+        };
+    }
+
+    private Person ReadPerson(string path, string? logicalPath = null)
+    {
+        var documentPath = logicalPath ?? path;
+        var content = File.ReadAllText(path);
+        var parsed = FrontMatter.Parse(content);
+        var type = parsed["type"] ?? "person";
+        if (!string.Equals(type, "person", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Plik w folderze People ma typ „{type}”.");
+        }
+
+        var name = string.IsNullOrWhiteSpace(parsed.Title)
+            ? Path.GetFileNameWithoutExtension(documentPath)
+            : parsed.Title;
+        var slug = string.IsNullOrWhiteSpace(parsed["slug"])
+            ? SlugHelper.FromName(name)
+            : parsed["slug"]!;
+        var id = string.IsNullOrWhiteSpace(parsed["id"]) ? SlugHelper.NewId() : parsed["id"]!;
+        SafeFileStorage.ValidateFileToken(id, "identyfikator osoby");
+        SafeFileStorage.ValidateFileToken(slug, "slug osoby");
+
+        return new Person
+        {
+            Id = id,
+            Name = name,
+            Slug = slug,
+            Role = parsed["role"] ?? string.Empty,
+            Description = parsed.Body,
+            AvatarPath = parsed["avatar"] ?? string.Empty,
             Created = FrontMatter.ReadDate(parsed["created"], File.GetCreationTime(path)),
             Modified = FrontMatter.ReadDate(parsed["modified"], File.GetLastWriteTime(path)),
             FilePath = documentPath,
@@ -538,6 +640,38 @@ public sealed class MarkdownStore
         }
     }
 
+    private bool TryReadPersonBackup(string primaryPath, Exception primaryError, out Person? recovered)
+    {
+        recovered = null;
+        var backupPath = primaryPath + ".bak";
+        try
+        {
+            SafeFileStorage.ValidateContainedFilePath(PeopleFolder, backupPath);
+            if (!File.Exists(backupPath))
+            {
+                return false;
+            }
+
+            recovered = ReadPerson(backupPath, primaryPath);
+            ReportIssue(
+                StorageArea.People,
+                primaryPath,
+                "Plik osoby jest uszkodzony lub niedostępny; wczytano kopię awaryjną.",
+                primaryError,
+                recoveredFromBackup: true);
+            return true;
+        }
+        catch (Exception backupError)
+        {
+            ReportIssue(
+                StorageArea.People,
+                primaryPath,
+                "Nie można odczytać pliku osoby ani jego kopii awaryjnej.",
+                new AggregateException(primaryError, backupError));
+            return false;
+        }
+    }
+
     private string[] EnumerateMarkdownFiles(string folder, StorageArea area)
     {
         try
@@ -557,6 +691,7 @@ public sealed class MarkdownStore
         Directory.CreateDirectory(root);
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Projects"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Notes"));
+        SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "People"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash", "Projects"));
     }

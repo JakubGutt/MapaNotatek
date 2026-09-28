@@ -1,0 +1,207 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MapaNotatek.Views.PeopleView"
+             Focusable="True"
+             AutomationProperties.Name="Panel osób">
+    <UserControl.Styles>
+        <Style Selector="Border.person-card">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+        </Style>
+        <Style Selector="ListBox.relation-list">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox.relation-list ListBoxItem">
+            <Setter Property="Padding" Value="9,7" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*" Background="{DynamicResource WorkspaceBackgroundBrush}">
+        <Border Grid.Row="0"
+                Padding="24,17"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                Background="{DynamicResource SurfaceBrush}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="Osoby" Classes="heading" />
+                    <TextBlock Text="Kto jest zaangażowany, gdzie się pojawia i jakie ma zadania."
+                               Classes="subtitle"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Border Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="7" Padding="10,5">
+                        <TextBlock x:Name="PeopleCountText" Classes="metadata" />
+                    </Border>
+                    <Button Content="+ Dodaj osobę" Click="OnNewPerson" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,380">
+            <Grid Grid.Column="0" ClipToBounds="True">
+                <ScrollViewer x:Name="PeopleScroll"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto">
+                    <Canvas x:Name="PeopleCanvas" Width="1600" Height="1120" Background="Transparent" />
+                </ScrollViewer>
+                <StackPanel x:Name="PeopleEmptyState"
+                            IsVisible="False"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            MaxWidth="360"
+                            Spacing="10">
+                    <TextBlock Text="Dodaj pierwszą osobę"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Potem przypiszesz ją osobnym polem w projekcie, folderze, notatce albo zadaniu."
+                               Classes="subtitle"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Content="Utwórz osobę" HorizontalAlignment="Center" Click="OnNewPerson" />
+                </StackPanel>
+                <Border HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        Margin="18"
+                        Padding="10,6"
+                        CornerRadius="8"
+                        Background="{DynamicResource SurfaceMutedBrush}"
+                        IsHitTestVisible="False">
+                    <TextBlock Classes="metadata"
+                               Text="Kliknij awatar, aby zobaczyć informacje i powiązania" />
+                </Border>
+            </Grid>
+
+            <Border Grid.Column="1"
+                    Padding="20"
+                    BorderThickness="1,0,0,0"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    Background="{DynamicResource SurfaceMutedBrush}">
+                <Grid>
+                    <StackPanel x:Name="PersonEmptyDetail"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                MaxWidth="280"
+                                Spacing="8">
+                        <TextBlock Text="Wybierz osobę"
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Tutaj pojawią się informacje, projekty, notatki i zadania tej osoby."
+                                   Classes="subtitle"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <ScrollViewer x:Name="PersonDetail" IsVisible="False">
+                        <StackPanel Spacing="10">
+                            <StackPanel HorizontalAlignment="Center" Spacing="8">
+                                <ContentControl x:Name="DetailAvatar" HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                    <Button Content="Wybierz zdjęcie" Click="OnChooseAvatar" />
+                                    <Button x:Name="RemoveAvatarButton" Content="Usuń zdjęcie" Click="OnRemoveAvatar" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBlock Classes="eyebrow" Text="IMIĘ I NAZWISKO" Margin="0,8,0,0" />
+                            <TextBox x:Name="PersonNameBox"
+                                     PlaceholderText="Imię i nazwisko"
+                                     FontSize="21"
+                                     FontWeight="SemiBold"
+                                     TextChanged="OnPersonChanged" />
+                            <TextBlock Classes="eyebrow" Text="ROLA" />
+                            <TextBox x:Name="PersonRoleBox"
+                                     PlaceholderText="np. Klient, projektantka, właściciel zadania"
+                                     TextChanged="OnPersonChanged" />
+                            <TextBlock x:Name="PersonSlugText" Classes="metadata" />
+                            <TextBlock Classes="eyebrow" Text="INFORMACJE" Margin="0,5,0,0" />
+                            <TextBox x:Name="PersonDescriptionBox"
+                                     PlaceholderText="Kontakt, kontekst współpracy, ważne ustalenia…"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="110"
+                                     VerticalContentAlignment="Top"
+                                     TextChanged="OnPersonChanged" />
+
+                            <Border Classes="person-card" Padding="12" Margin="0,6,0,2">
+                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock x:Name="PersonProjectsCount" FontSize="20" FontWeight="SemiBold" />
+                                        <TextBlock Text="projekty i foldery" Classes="metadata" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock x:Name="PersonNotesCount" FontSize="20" FontWeight="SemiBold" />
+                                        <TextBlock Text="notatki" Classes="metadata" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="2">
+                                        <TextBlock x:Name="PersonTasksCount" FontSize="20" FontWeight="SemiBold" />
+                                        <TextBlock Text="otwarte zadania" Classes="metadata" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <TextBlock Text="Projekty i foldery" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            <TextBlock x:Name="ProjectsEmptyText" Text="Brak przypisań." Classes="metadata" />
+                            <ListBox x:Name="PersonProjectsList"
+                                     Classes="relation-list"
+                                     MaxHeight="180"
+                                     DoubleTapped="OnRelatedItemDoubleTapped">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{ReflectionBinding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{ReflectionBinding Meta}" Classes="metadata" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <TextBlock Text="Notatki" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            <TextBlock x:Name="NotesEmptyText" Text="Brak przypisań." Classes="metadata" />
+                            <ListBox x:Name="PersonNotesList"
+                                     Classes="relation-list"
+                                     MaxHeight="180"
+                                     DoubleTapped="OnRelatedItemDoubleTapped">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{ReflectionBinding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{ReflectionBinding Meta}" Classes="metadata" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <TextBlock Text="Zadania" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            <TextBlock x:Name="TasksEmptyText" Text="Brak przypisanych zadań." Classes="metadata" />
+                            <ListBox x:Name="PersonTasksList"
+                                     Classes="relation-list"
+                                     MaxHeight="230"
+                                     DoubleTapped="OnRelatedItemDoubleTapped">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{ReflectionBinding Title}" FontWeight="Medium" TextWrapping="Wrap" />
+                                            <TextBlock Text="{ReflectionBinding Meta}" Classes="metadata" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Text="Dwukrotne kliknięcie otwiera źródło powiązania."
+                                       Classes="metadata"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,12" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
