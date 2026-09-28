@@ -147,8 +147,8 @@
                                      TextChanged="OnProjectChanged" />
                             <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,4,0,0" />
                             <TextBox x:Name="ProjectPeopleBox"
-                                     PlaceholderText="anna-kowalska, piotr-nowak"
-                                     ToolTip.Tip="Wpisz nazwy lub identyfikatory osób, rozdzielone przecinkami"
+                                     PlaceholderText="Anna Kowalska, piotr-nowak"
+                                     ToolTip.Tip="Wpisz imiona i nazwiska lub identyfikatory osób, rozdzielone przecinkami"
                                      TextChanged="OnProjectChanged" />
                             <TextBlock Text="Osobne przypisanie osób — niezależne od tagów projektu."
                                        Classes="metadata"
@@ -515,8 +515,8 @@
 
                             <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,10,0,0" />
                             <TextBox x:Name="NotePeopleBox"
-                                     PlaceholderText="anna-kowalska, piotr-nowak"
-                                     ToolTip.Tip="Wpisz nazwy lub identyfikatory osób, rozdzielone przecinkami"
+                                     PlaceholderText="Anna Kowalska, piotr-nowak"
+                                     ToolTip.Tip="Wpisz imiona i nazwiska lub identyfikatory osób, rozdzielone przecinkami"
                                      TextChanged="OnNoteChanged" />
                             <TextBlock Text="Te przypisania zasilają panel Osoby i nie mieszają się ze zwykłymi tagami."
                                        FontSize="11"

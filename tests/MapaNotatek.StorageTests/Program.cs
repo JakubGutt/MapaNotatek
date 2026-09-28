@@ -12,6 +12,7 @@ var tests = new (string Name, Action Run)[]
     ("typy architektury przechodzą round-trip", ArchitectureTypesRoundTrip),
     ("hierarchia architektury pilnuje dozwolonych relacji", ArchitectureHierarchyRules),
     ("przypisania osób są osobne od tagów", PersonAssignmentsRoundTrip),
+    ("nazwa osoby rozwiązuje się do stabilnego identyfikatora", PersonNameResolvesToStableSlug),
     ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
     ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
     ("ponowny zapis tworzy kopię awaryjną", AtomicSaveCreatesBackup),
@@ -401,11 +402,13 @@ static void PeoplePanelIsWired()
 {
     var root = FindRepositoryRoot();
     var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var shellCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
     var editor = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml"));
     var people = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "PeopleView.axaml"));
 
     True(shell.Contains("x:Name=\"PeopleRadio\"", StringComparison.Ordinal));
     True(shell.Contains("x:Name=\"PeopleHost\"", StringComparison.Ordinal));
+    True(shellCode.Contains("_vm.PeopleChanged += OnPeopleChanged", StringComparison.Ordinal));
     True(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
     True(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"DetailAvatar\"", StringComparison.Ordinal));
@@ -548,6 +551,21 @@ static void PersonAssignmentsRoundTrip()
     };
     var parsedProject = FrontMatter.Parse(FrontMatter.WriteProject(project));
     Equal("anna-kowalska", parsedProject["people"]);
+}
+
+static void PersonNameResolvesToStableSlug()
+{
+    var people = new[]
+    {
+        new Person { Name = "Anna Kowalska", Slug = "nowa-osoba" },
+        new Person { Name = "Piotr Nowak", Slug = "piotr-nowak" }
+    };
+
+    var resolved = PersonTagService.Resolve("Anna Kowalska, @piotr-nowak, osoba-spoza-rejestru", people);
+    Equal(3, resolved.Count);
+    Equal("nowa-osoba", resolved[0]);
+    Equal("piotr-nowak", resolved[1]);
+    Equal("osoba-spoza-rejestru", resolved[2]);
 }
 
 static void TaskPeopleRoundTrip()

@@ -206,8 +206,14 @@ public partial class EditorPanel : UserControl
 
         project.Name = ProjectNameBox.Text ?? string.Empty;
         project.Description = ProjectDescriptionBox.Text ?? string.Empty;
-        project.People = PersonTagService.Parse(ProjectPeopleBox.Text);
-        ViewModel.ScheduleSaveProject(project);
+        if (ReferenceEquals(sender, ProjectPeopleBox))
+        {
+            ViewModel.UpdateProjectPeople(project, ProjectPeopleBox.Text);
+        }
+        else
+        {
+            ViewModel.ScheduleSaveProject(project);
+        }
     }
 
     private void OnProjectPanelSizeChanged(object? sender, SizeChangedEventArgs e)
@@ -272,8 +278,14 @@ public partial class EditorPanel : UserControl
             ForgetStaleSelection(NoteBodyBox);
         }
         note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
-        note.People = PersonTagService.Parse(NotePeopleBox.Text);
-        ViewModel.ScheduleSaveNote(note);
+        if (ReferenceEquals(sender, NotePeopleBox))
+        {
+            ViewModel.UpdateNotePeople(note, NotePeopleBox.Text);
+        }
+        else
+        {
+            ViewModel.ScheduleSaveNote(note);
+        }
         UpdatePreviewAndLinks(note);
         UpdateDocumentCount(note.Body);
         EditorSaveStatusText.Text = "Zapisywanie…";
@@ -644,7 +656,7 @@ public partial class EditorPanel : UserControl
             var peopleBox = new TextBox
             {
                 Text = PersonTagService.Format(block.People),
-                PlaceholderText = "Osoby: anna-kowalska, piotr-nowak",
+                PlaceholderText = "Osoby: Anna Kowalska, piotr-nowak",
                 FontSize = 11,
                 MinHeight = 30,
                 Margin = new Thickness(3, 3, 0, 0)
@@ -656,8 +668,9 @@ public partial class EditorPanel : UserControl
                     return;
                 }
 
-                block.People = PersonTagService.Parse(peopleBox.Text);
+                block.People = ViewModel?.ResolvePeopleAssignments(peopleBox.Text) ?? PersonTagService.Parse(peopleBox.Text);
                 SyncVisualToNote(updateOutline: false);
+                ViewModel?.NotifyPeopleAssignmentsChanged();
             };
             editorWithOutput.Children.Add(peopleBox);
         }
@@ -2436,14 +2449,15 @@ public partial class EditorPanel : UserControl
             var people = new TextBox
             {
                 Text = PersonTagService.Format(item.People),
-                PlaceholderText = "Osoby: anna-kowalska, piotr-nowak",
+                PlaceholderText = "Osoby: Anna Kowalska, piotr-nowak",
                 FontSize = 11,
                 MinHeight = 30
             };
             people.TextChanged += (_, _) =>
             {
-                item.People = PersonTagService.Parse(people.Text);
+                item.People = ViewModel?.ResolvePeopleAssignments(people.Text) ?? PersonTagService.Parse(people.Text);
                 changed();
+                ViewModel?.NotifyPeopleAssignmentsChanged();
             };
 
             var row = new Grid

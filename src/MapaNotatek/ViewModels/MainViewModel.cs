@@ -468,6 +468,37 @@ public sealed class MainViewModel : ObservableObject
         StatusText = "Zapisywanie…";
     }
 
+    public List<string> ResolvePeopleAssignments(string? value) =>
+        PersonTagService.Resolve(value, People);
+
+    public void UpdateProjectPeople(Project project, string? value)
+    {
+        var resolved = ResolvePeopleAssignments(value);
+        if (project.People.SequenceEqual(resolved, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        project.People = resolved;
+        ScheduleSaveProject(project);
+        PeopleChanged?.Invoke();
+    }
+
+    public void UpdateNotePeople(Note note, string? value)
+    {
+        var resolved = ResolvePeopleAssignments(value);
+        if (note.People.SequenceEqual(resolved, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        note.People = resolved;
+        ScheduleSaveNote(note);
+        PeopleChanged?.Invoke();
+    }
+
+    public void NotifyPeopleAssignmentsChanged() => PeopleChanged?.Invoke();
+
     public void SaveNow()
     {
         _saveTimer.Stop();
@@ -754,7 +785,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void UpdateTaskPeople(OpenTask task, string? people)
     {
-        var normalized = PersonTagService.Parse(people);
+        var normalized = ResolvePeopleAssignments(people);
         if (task.Item.People.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
         {
             return;

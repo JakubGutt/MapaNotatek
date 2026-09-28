@@ -205,6 +205,7 @@ public partial class MainWindow : Window
             UpdateEmptyState();
 
             _vm.GraphChanged += OnGraphChanged;
+            _vm.PeopleChanged += OnPeopleChanged;
             _vm.EditorChanged += OnEditorChanged;
             _vm.FocusNodeRequested += id =>
             {
@@ -294,6 +295,11 @@ public partial class MainWindow : Window
             UpdateEditorVisibility();
             UpdateEmptyState();
         });
+    }
+
+    private void OnPeopleChanged()
+    {
+        Dispatcher.UIThread.Post(_peopleControl.Refresh);
     }
 
     private void OnEditorChanged()
