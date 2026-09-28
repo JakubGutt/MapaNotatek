@@ -61,6 +61,7 @@ var tests = new (string Name, Action Run)[]
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
+    ("kliknięcie poza polem kończy edycję w całej aplikacji", ClickOutsideDismissesTextEditing),
     ("wyszukiwarka obsługuje filtry i pełne frazy", SearchFiltersAndPhrases),
     ("wyszukiwarka obsługuje wykluczenia i zadania", SearchExclusionsAndTasks),
     ("wyszukiwarka rozróżnia foldery i projekty", SearchProjectTypes)
@@ -413,6 +414,18 @@ static void PeoplePanelIsWired()
     True(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"DetailAvatar\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"PersonTasksList\"", StringComparison.Ordinal));
+}
+
+static void ClickOutsideDismissesTextEditing()
+{
+    var root = FindRepositoryRoot();
+    var app = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "App.axaml.cs"));
+    var behavior = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Services", "FocusDismissService.cs"));
+
+    True(app.Contains("FocusDismissService.Register()", StringComparison.Ordinal));
+    True(behavior.Contains("AddClassHandler<TopLevel>", StringComparison.Ordinal));
+    True(behavior.Contains("RoutingStrategies.Tunnel", StringComparison.Ordinal));
+    True(behavior.Contains("focusManager.Focus(null", StringComparison.Ordinal));
 }
 
 static void ChecklistPositionRoundTrip()

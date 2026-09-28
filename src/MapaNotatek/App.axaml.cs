@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using MapaNotatek.Services;
 
 namespace MapaNotatek;
 
@@ -9,6 +10,7 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        FocusDismissService.Register();
     }
 
     public override void OnFrameworkInitializationCompleted()
