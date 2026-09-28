@@ -50,13 +50,17 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-SR-06 — planowane:** widok notatki pokazuje również dokumenty wskazujące na nią.
 - **FR-SR-07 — planowane:** użytkownik może zapisać zestaw filtrów jako nazwany widok.
 
-### FR-PR — projekty, foldery i zadania
+### FR-PR — architektura, projekty, foldery i zadania
 
 - **FR-PR-01 — gotowe:** użytkownik może tworzyć projekty oraz zagnieżdżone foldery.
 - **FR-PR-02 — gotowe:** tag zgodny ze slugiem projektu przypisuje notatkę do projektu.
 - **FR-PR-03 — gotowe:** checklisty notatek i projektów zasilają jeden widok otwartych zadań.
 - **FR-PR-04 — gotowe:** graf pokazuje projekty, notatki i relacje, ale jest widokiem dodatkowym.
 - **FR-PR-05 — gotowe:** graf może skupić się na projekcie i zachowuje lokalne położenia elementów.
+- **FR-PR-06 — gotowe:** struktura rozróżnia system, produkt, podsystem i komponent; starsze projekty pozostają projektami ogólnymi.
+- **FR-PR-07 — gotowe:** dozwolony model relacji to system → produkt → podsystem/komponent → komponent, a foldery i projekty ogólne są elastycznymi kontenerami.
+- **FR-PR-08 — gotowe:** graf i drzewo używają wspólnego koloru i oznaczenia dla każdego typu architektury.
+- **FR-PR-09 — gotowe:** typ elementu można wybrać z jednego menu tworzenia w lewym drzewie i z menu kontekstowego rodzica.
 
 ### FR-EX — eksport i współpraca bez integracji sieciowej
 

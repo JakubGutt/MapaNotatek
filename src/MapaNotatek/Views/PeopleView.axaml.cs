@@ -359,7 +359,7 @@ public partial class PeopleView : UserControl
             .Where(project => PersonTagService.Contains(project.People, person.Slug))
             .Select(project => new PersonRelatedItem(
                 project.Name,
-                project.IsFolder ? "Folder" : "Projekt",
+                project.ItemType.Label(),
                 project.Id,
                 IsProject: true))
             .OrderBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase)
@@ -403,7 +403,7 @@ public partial class PeopleView : UserControl
             {
                 yield return new PersonRelatedItem(
                     (task.IsDone ? "✓ " : "○ ") + task.Text,
-                    (project.IsFolder ? "Folder" : "Projekt") + " · " + project.Name,
+                    project.ItemType.Label() + " · " + project.Name,
                     project.Id,
                     IsProject: true,
                     task.IsDone);
@@ -539,7 +539,7 @@ public partial class PeopleView : UserControl
         var tasks = ViewModel.Projects.SelectMany(project => project.Checklist)
             .Concat(ViewModel.Notes.SelectMany(note => note.Checklist))
             .Count(task => PersonTagService.Contains(task.People, person.Slug) && !task.IsDone);
-        return $"{projects} projektów/folderów · {notes} notatek · {tasks} otwartych zadań";
+        return $"{projects} elementów struktury · {notes} notatek · {tasks} otwartych zadań";
     }
 
     private string? ResolveAvatarPath(Person person)

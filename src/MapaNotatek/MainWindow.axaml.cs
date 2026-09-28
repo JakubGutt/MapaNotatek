@@ -640,16 +640,17 @@ public partial class MainWindow : Window
                 _vm.SelectProject(p, false, true, true);
                 CreateNote();
             }));
-            menu.Items.Add(MenuAction("Nowy podprojekt", () =>
+            var addInside = new MenuItem { Header = "Dodaj wewnątrz" };
+            foreach (var itemType in p.ItemType.AllowedChildren())
             {
-                var c = _graphControl.GetViewportCenterInCanvas();
-                _vm.NewProject(c.X, c.Y, p.Id);
-            }));
-            menu.Items.Add(MenuAction("Nowy folder wewnątrz", () =>
+                var capturedType = itemType;
+                addInside.Items.Add(MenuAction(itemType.Label(), () => CreateProject(capturedType, p.Id)));
+            }
+
+            if (addInside.Items.Count > 0)
             {
-                var c = _graphControl.GetViewportCenterInCanvas();
-                _vm.NewFolder(c.X, c.Y, p.Id);
-            }));
+                menu.Items.Add(addInside);
+            }
             menu.Items.Add(MenuAction(_vm.IsPinned(p.Id) ? "Odepnij" : "Przypnij", () =>
             {
                 _vm.SelectProject(p, _vm.IsEditorOpen, true);
@@ -657,7 +658,7 @@ public partial class MainWindow : Window
             }));
             menu.Items.Add(MenuAction("Przenieś do root", () => _vm.SetProjectParent(p, null)));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MenuAction(p.IsFolder ? "Usuń folder…" : "Usuń projekt…",
+            menu.Items.Add(MenuAction($"Usuń: {p.ItemType.Label().ToLowerInvariant()}…",
                 () => _ = ConfirmDeleteProjectAsync(p)));
         };
         ProjectsTree.ContextMenu = menu;
@@ -723,11 +724,13 @@ public partial class MainWindow : Window
     private void OnTreeDragOver(object? sender, DragEventArgs e)
     {
         var text = e.DataTransfer.TryGetText();
-        e.DragEffects = text is not null &&
-                        (text.StartsWith("project:", StringComparison.Ordinal) ||
-                         text.StartsWith("note:", StringComparison.Ordinal))
-            ? DragDropEffects.Move
-            : DragDropEffects.None;
+        var target = FindTreeNodeAt(e.Source as Control)?.Project;
+        var canDrop = target is not null && text is not null &&
+                      (text.StartsWith("note:", StringComparison.Ordinal) ||
+                       (text.StartsWith("project:", StringComparison.Ordinal) &&
+                        _vm.Projects.FirstOrDefault(project => project.Id == text["project:".Length..]) is { } dragged &&
+                        _vm.CanSetProjectParent(dragged, target)));
+        e.DragEffects = canDrop ? DragDropEffects.Move : DragDropEffects.None;
     }
 
     private void OnTreeDrop(object? sender, DragEventArgs e)
@@ -783,7 +786,7 @@ public partial class MainWindow : Window
 
     private async Task ConfirmDeleteProjectAsync(Project project)
     {
-        var kind = project.IsFolder ? "folder" : "projekt";
+        var kind = project.ItemType.Label().ToLowerInvariant();
         var dialog = new Window
         {
             Title = $"Przenieś {kind} do kosza",
@@ -795,7 +798,7 @@ public partial class MainWindow : Window
         var ok = false;
         var message = new TextBlock
         {
-            Text = $"Przenieść {kind} „{project.Name}” do kosza? Dzieci zostaną przeniesione poziom wyżej, a notatki pozostaną. Projekt będzie można później przywrócić.",
+            Text = $"Przenieść {kind} „{project.Name}” do kosza? Dzieci zostaną przeniesione poziom wyżej, a notatki pozostaną. Element będzie można później przywrócić.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(16)
         };
@@ -988,12 +991,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void CreateProject()
+    private void CreateProject() => CreateProject(ProjectItemType.Project);
+
+    private void CreateProject(ProjectItemType itemType, string? explicitParentId = null)
     {
         try
         {
             var center = _graphControl.GetViewportCenterInCanvas();
-            _vm.NewProject(center.X, center.Y);
+            var parentId = explicitParentId ?? _vm.FocusedProject()?.Id ??
+                           (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project.Id;
+            _vm.NewProject(itemType, center.X, center.Y, parentId);
             ShowEditorPage();
             _editorControl.Refresh();
             UpdateEditorVisibility();
@@ -1002,30 +1009,24 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _vm.StatusText = "Nie udało się utworzyć projektu: " + ex.Message;
-            _ = ShowMessageAsync("Nie utworzono projektu", ex.Message);
+            _vm.StatusText = $"Nie udało się utworzyć elementu typu {itemType.Label().ToLowerInvariant()}: " + ex.Message;
+            _ = ShowMessageAsync("Nie utworzono elementu", ex.Message);
         }
     }
 
-    private void OnNewFolder(object? sender, RoutedEventArgs e)
+    private void OnNewProjectItem(object? sender, RoutedEventArgs e)
     {
-        try
+        if (sender is not Control { Tag: string tag } ||
+            !Enum.TryParse<ProjectItemType>(tag, ignoreCase: true, out var itemType))
         {
-            var center = _graphControl.GetViewportCenterInCanvas();
-            var parent = _vm.FocusedProject()?.Id ??
-                         (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project.Id;
-            _vm.NewFolder(center.X, center.Y, parent);
-            ShowEditorPage();
-            _editorControl.Refresh();
-            UpdateEditorVisibility();
-            UpdateEmptyState();
+            return;
         }
-        catch (Exception ex)
-        {
-            _vm.StatusText = "Nie udało się utworzyć folderu: " + ex.Message;
-            _ = ShowMessageAsync("Nie utworzono folderu", ex.Message);
-        }
+
+        CreateProject(itemType);
     }
+
+    private void OnNewFolder(object? sender, RoutedEventArgs e) =>
+        CreateProject(ProjectItemType.Folder);
 
     private void OnTogglePin(object? sender, RoutedEventArgs e) => _vm.TogglePinSelected();
 
@@ -1047,7 +1048,7 @@ public partial class MainWindow : Window
         var entries = trashedNotes
             .Select(note => (Note: (Note?)note, Project: (Project?)null, Label: $"Notatka · {note.Title}"))
             .Concat(trashedProjects.Select(project =>
-                (Note: (Note?)null, Project: (Project?)project, Label: $"{(project.IsFolder ? "Folder" : "Projekt")} · {project.Name}")))
+                (Note: (Note?)null, Project: (Project?)project, Label: $"{project.ItemType.Label()} · {project.Name}")))
             .ToList();
         var list = new ListBox
         {
@@ -1443,8 +1444,12 @@ public partial class MainWindow : Window
         new() { Name = "Szablon: plan projektu", Shortcut = "", Run = () => CreateNoteFromTemplate("project-brief") },
         new() { Name = "Szablon: procedura", Shortcut = "", Run = () => CreateNoteFromTemplate("procedure") },
         new() { Name = "Szablon: notatka dzienna", Shortcut = "", Run = () => CreateNoteFromTemplate("daily") },
-        new() { Name = "Nowy projekt", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject },
-        new() { Name = "Nowy folder", Shortcut = "", Run = () => OnNewFolder(null, new RoutedEventArgs()) },
+        new() { Name = "Nowy system", Shortcut = "", Run = () => CreateProject(ProjectItemType.System) },
+        new() { Name = "Nowy produkt", Shortcut = "", Run = () => CreateProject(ProjectItemType.Product) },
+        new() { Name = "Nowy podsystem", Shortcut = "", Run = () => CreateProject(ProjectItemType.Subsystem) },
+        new() { Name = "Nowy komponent", Shortcut = "", Run = () => CreateProject(ProjectItemType.Component) },
+        new() { Name = "Nowy projekt ogólny", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject },
+        new() { Name = "Nowy folder", Shortcut = "", Run = () => CreateProject(ProjectItemType.Folder) },
         new() { Name = "Nowa osoba", Shortcut = "", Run = () => OnNewPerson(null, new RoutedEventArgs()) },
         new() { Name = "Zapisz", Shortcut = PlatformKeys.Chord("S"), Run = _vm.SaveNow },
         new() { Name = "Znajdź w dokumencie", Shortcut = PlatformKeys.Chord("F"), Run = FindInDocument },
@@ -1453,7 +1458,7 @@ public partial class MainWindow : Window
         new() { Name = "Lista notatek", Shortcut = PlatformKeys.Chord("2"), Run = () => ShowCenter(CenterViewKind.Notes) },
         new() { Name = "Otwarte zadania", Shortcut = PlatformKeys.Chord("3"), Run = () => ShowCenter(CenterViewKind.Tasks) },
         new() { Name = "Osoby", Shortcut = PlatformKeys.Chord("4"), Run = () => ShowCenter(CenterViewKind.People) },
-        new() { Name = "Pokaż wszystkie projekty", Shortcut = "", Run = _vm.ShowAllProjects },
+        new() { Name = "Pokaż całą strukturę", Shortcut = "", Run = _vm.ShowAllProjects },
         new() { Name = "Kosz", Shortcut = "", Run = () => _ = ShowTrashAsync() },
         new() { Name = "Przypnij / odepnij", Shortcut = "", Run = _vm.TogglePinSelected },
         new() { Name = "Wyśrodkuj zaznaczenie", Shortcut = "", Run = () => OnCenterSelection(null, new RoutedEventArgs()) },
@@ -1461,7 +1466,7 @@ public partial class MainWindow : Window
         new() { Name = "Ustawienia", Shortcut = PlatformKeys.Chord(","), Run = () => _ = ShowSettingsAsync() },
         new() { Name = "Skróty klawiszowe", Shortcut = PlatformKeys.Chord("/"), Run = () => _ = ShowShortcutsAsync() },
         new() { Name = "Eksportuj kopię", Shortcut = "", Run = () => _ = ExportBackupAsync() },
-        new() { Name = "Usuń folder / projekt…", Shortcut = "", Run = () => OnDeleteProject(null, new RoutedEventArgs()) },
+        new() { Name = "Usuń element struktury…", Shortcut = "", Run = () => OnDeleteProject(null, new RoutedEventArgs()) },
         new() { Name = "Przenieś notatkę do kosza", Shortcut = PlatformKeys.TrashLabel, Run = _vm.TrashSelectedNote }
     ];
 

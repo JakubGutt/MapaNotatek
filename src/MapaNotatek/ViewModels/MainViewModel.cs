@@ -211,23 +211,38 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public Project NewProject(double? x = null, double? y = null, string? parentId = null, bool isFolder = false)
+        => NewProject(isFolder ? ProjectItemType.Folder : ProjectItemType.Project, x, y, parentId);
+
+    public Project NewProject(ProjectItemType itemType, double? x = null, double? y = null, string? parentId = null)
     {
-        var name = isFolder ? "Nowy folder" : "Nowy projekt";
-        var project = Store.CreateProject(name, parentId ?? FocusedProject()?.Id, isFolder);
+        var requestedParentId = parentId ?? FocusedProject()?.Id;
+        var actualParentId = requestedParentId;
+        var parent = requestedParentId is null
+            ? null
+            : Projects.FirstOrDefault(candidate => string.Equals(candidate.Id, requestedParentId, StringComparison.OrdinalIgnoreCase));
+        var parentRejected = parent is not null && !parent.ItemType.CanContain(itemType);
+        if (parentRejected)
+        {
+            actualParentId = null;
+        }
+
+        var project = Store.CreateProject(itemType.DefaultName(), actualParentId, itemType);
         Projects.Add(project);
-        PlaceNewNode(project.Id, x, y, preferNearParent: parentId ?? FocusedProject()?.Id);
+        PlaceNewNode(project.Id, x, y, preferNearParent: actualParentId);
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
         TrySaveState();
         RefreshVisible();
         SelectProject(project, openEditor: true, focusGraph: true);
-        StatusText = isFolder ? "Utworzono folder" : "Utworzono projekt";
+        StatusText = parentRejected
+            ? $"Utworzono: {itemType.Label()}. Wybrany {parent!.ItemType.Label().ToLowerInvariant()} nie może go zawierać, więc element dodano na poziomie głównym"
+            : $"Utworzono: {itemType.Label()}";
         GraphChanged?.Invoke();
         FocusNodeRequested?.Invoke(project.Id);
         return project;
     }
 
     public Project NewFolder(double? x = null, double? y = null, string? parentId = null) =>
-        NewProject(x, y, parentId, isFolder: true);
+        NewProject(ProjectItemType.Folder, x, y, parentId);
 
     public Note NewNote(double? x = null, double? y = null)
     {
@@ -386,7 +401,7 @@ public sealed class MainViewModel : ObservableObject
     public void ShowAllProjects()
     {
         FocusedProjectId = null;
-        StatusText = "Widok wszystkich projektów";
+        StatusText = "Widok całej struktury";
     }
 
     public void MoveNode(string id, double x, double y, bool recordUndo)
@@ -1059,7 +1074,7 @@ public sealed class MainViewModel : ObservableObject
             var copy = Store.CreateProject(
                 original.Name + " — kopia lokalna",
                 original.ParentId,
-                original.IsFolder);
+                original.ItemType);
             copy.Description = original.Description;
             copy.People = original.People.ToList();
             copy.Checklist = original.Checklist
@@ -1192,6 +1207,21 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
+        var parent = parentId is null
+            ? null
+            : Projects.FirstOrDefault(candidate => string.Equals(candidate.Id, parentId, StringComparison.OrdinalIgnoreCase));
+        if (parentId is not null && parent is null)
+        {
+            StatusText = "Nie znaleziono elementu nadrzędnego";
+            return;
+        }
+
+        if (parent is not null && !parent.ItemType.CanContain(project.ItemType))
+        {
+            StatusText = $"{parent.ItemType.Label()} nie może zawierać elementu typu {project.ItemType.Label().ToLowerInvariant()}";
+            return;
+        }
+
         var oldParent = project.ParentId;
         project.ParentId = parentId;
         try
@@ -1223,8 +1253,13 @@ public sealed class MainViewModel : ObservableObject
             });
         RefreshVisible();
         GraphChanged?.Invoke();
-        StatusText = parentId is null ? "Przeniesiono do root" : "Zmieniono folder nadrzędny";
+        StatusText = parentId is null ? "Przeniesiono na poziom główny" : "Zmieniono element nadrzędny";
     }
+
+    public bool CanSetProjectParent(Project project, Project parent) =>
+        !string.Equals(project.Id, parent.Id, StringComparison.OrdinalIgnoreCase) &&
+        !IsAncestor(project.Id, parent.Id) &&
+        parent.ItemType.CanContain(project.ItemType);
 
     public void AttachNoteToProject(Note note, Project project)
     {
@@ -1266,6 +1301,9 @@ public sealed class MainViewModel : ObservableObject
         }
 
         var parentId = project.ParentId;
+        var parent = parentId is null
+            ? null
+            : Projects.FirstOrDefault(candidate => string.Equals(candidate.Id, parentId, StringComparison.OrdinalIgnoreCase));
         var children = Projects.Where(p =>
             string.Equals(p.ParentId, project.Id, StringComparison.OrdinalIgnoreCase)).ToList();
         var savedChildren = new List<Project>();
@@ -1273,7 +1311,9 @@ public sealed class MainViewModel : ObservableObject
         {
             foreach (var child in children)
             {
-                child.ParentId = parentId;
+                child.ParentId = parent is not null && parent.ItemType.CanContain(child.ItemType)
+                    ? parentId
+                    : null;
                 SaveProjectWithHistory(child);
                 savedChildren.Add(child);
             }
@@ -1349,9 +1389,7 @@ public sealed class MainViewModel : ObservableObject
         EditorChanged?.Invoke();
         if (stateSaved)
         {
-            StatusText = project.IsFolder
-                ? $"Folder „{project.Name}” przeniesiono do kosza (dzieci przeniesiono wyżej)"
-                : $"Projekt „{project.Name}” przeniesiono do kosza (dzieci przeniesiono wyżej)";
+            StatusText = $"{project.ItemType.Label()} „{project.Name}” przeniesiono do kosza (dzieci przeniesiono wyżej)";
         }
     }
 
@@ -1438,13 +1476,14 @@ public sealed class MainViewModel : ObservableObject
         var project = Projects.FirstOrDefault(p => p.Id == id);
         if (project is not null)
         {
-            var prefix = project.IsFolder ? "Folder · " : "Projekt · ";
+            var prefix = project.ItemType.Label() + " · ";
             return new SidebarItem
             {
                 Id = project.Id,
                 Title = prefix + project.Name,
                 IsProject = true,
-                IsFolder = project.IsFolder
+                IsFolder = project.IsFolder,
+                ItemType = project.ItemType
             };
         }
 
@@ -1526,7 +1565,7 @@ public sealed class MainViewModel : ObservableObject
 
     private static IEnumerable<Project> SortTreeChildren(IEnumerable<Project> projects) =>
         projects
-            .OrderBy(p => p.IsFolder ? 0 : 1)
+            .OrderBy(p => p.ItemType.SortOrder())
             .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase);
 
     private void RefreshRelated()

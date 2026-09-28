@@ -71,7 +71,7 @@
     <Grid>
         <Grid x:Name="EmptyPanel">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                <TextBlock Text="Wybierz notatkę lub projekt"
+                <TextBlock Text="Wybierz notatkę lub element struktury"
                            FontSize="24"
                            FontWeight="SemiBold"
                            HorizontalAlignment="Center" />
@@ -95,7 +95,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Spacing="2">
                         <TextBlock x:Name="ProjectKindLabel" Text="PROJEKT" Classes="eyebrow" />
-                        <TextBlock Text="Przestrzeń projektu" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock x:Name="ProjectWorkspaceTitleText" Text="Przestrzeń szczegółów" FontSize="20" FontWeight="SemiBold" />
                         <TextBlock x:Name="ProjectHeaderContextText"
                                    Text="Opis, zadania i materiały w jednym miejscu"
                                    Classes="metadata" />
@@ -103,7 +103,7 @@
                     <Button Grid.Column="1"
                             Content="Działania ▾"
                             VerticalAlignment="Center"
-                            ToolTip.Tip="Więcej działań dotyczących projektu">
+                            ToolTip.Tip="Więcej działań dotyczących elementu">
                         <Button.Flyout>
                             <MenuFlyout>
                                 <MenuItem Header="Przenieś do kosza…" Click="OnDeleteProject" />
@@ -128,9 +128,9 @@
                             Grid.Column="0"
                             Classes="ProjectCard">
                         <StackPanel Spacing="12">
-                            <TextBlock Classes="MetaLabel" Text="O PROJEKCIE" />
+                            <TextBlock x:Name="ProjectOverviewLabel" Classes="MetaLabel" Text="O ELEMENCIE" />
                             <TextBox x:Name="ProjectNameBox"
-                                     PlaceholderText="Nazwa projektu"
+                                     PlaceholderText="Nazwa elementu"
                                      FontSize="30"
                                      FontWeight="SemiBold"
                                      Padding="0,3,0,8"
@@ -139,7 +139,7 @@
                                      TextChanged="OnProjectChanged" />
                             <TextBlock Classes="MetaLabel" Text="CEL I KONTEKST" Margin="0,4,0,0" />
                             <TextBox x:Name="ProjectDescriptionBox"
-                                     PlaceholderText="Opisz cel, zakres i najważniejsze informacje o projekcie…"
+                                     PlaceholderText="Opisz rolę, zakres i najważniejsze informacje o tym elemencie…"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
                                      MinHeight="170"

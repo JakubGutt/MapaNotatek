@@ -183,6 +183,9 @@ public sealed class MarkdownStore
     }
 
     public Project CreateProject(string name, string? parentId = null, bool isFolder = false)
+        => CreateProject(name, parentId, isFolder ? ProjectItemType.Folder : ProjectItemType.Project);
+
+    public Project CreateProject(string name, string? parentId, ProjectItemType itemType)
     {
         var existingSlugs = LoadProjects().Select(project => project.Slug);
         var slug = SlugHelper.Unique(SlugHelper.FromName(name), existingSlugs);
@@ -194,7 +197,7 @@ public sealed class MarkdownStore
             Slug = slug,
             Description = string.Empty,
             ParentId = parentId,
-            IsFolder = isFolder,
+            ItemType = itemType,
             Created = now,
             Modified = now
         };
@@ -486,7 +489,7 @@ public sealed class MarkdownStore
             Checklist = parsed.Checklist,
             IsArchived = FrontMatter.ReadBool(parsed["archived"]),
             ParentId = parentId,
-            IsFolder = string.Equals(parsed["kind"], "folder", StringComparison.OrdinalIgnoreCase),
+            ItemType = ProjectItemTypeCatalog.Parse(parsed["kind"]),
             Created = FrontMatter.ReadDate(parsed["created"], File.GetCreationTime(path)),
             Modified = FrontMatter.ReadDate(parsed["modified"], File.GetLastWriteTime(path)),
             FilePath = documentPath,

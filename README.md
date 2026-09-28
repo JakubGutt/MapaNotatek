@@ -20,10 +20,11 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - lokalna historia wcześniejszych wersji notatki z podglądem i przywracaniem;
 - eksport notatki do Markdown, samodzielnego HTML, DOCX i dopracowanego PDF z tabelami wielostronicowymi, formatowaniem tekstu, blokami kodu, cytatami, obrazami oraz nagłówkami i stopkami;
 - kopiowanie bezpiecznego rich textu do schowka, gotowego do wklejenia do Confluence lub innego edytora;
-- projekty, zagnieżdżone foldery, tagi, checklisty, zadania zbiorcze, przypięte i ostatnio otwierane notatki;
+- model architektury `system → produkt → podsystem → komponent`, uzupełniony o elastyczne projekty ogólne i foldery;
+- reguły hierarchii pilnujące sensownych relacji oraz jedno zwarte menu tworzenia w lewym drzewie;
 - panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; osoby są osobnym typem przypisania, niezależnym od zwykłych tagów;
-- interaktywny graf projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
-- widoczny wybór zakresu grafu: wszystkie projekty albo jedno drzewo projektu; foldery mają odrębny, turkusowy kolor;
+- interaktywny graf architektury, projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
+- systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;
 - Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;
 - kosz dla notatek i projektów z możliwością przywrócenia;
 - zweryfikowane kopie danych i przywracanie ich do nowego lub pustego folderu.
@@ -138,6 +139,8 @@ title:migracja tag:ważne
 body:"pełna fraza" -tag:archiwum
 project:atlas has:task
 type:folder
+type:system
+type:produkt
 ```
 
 ## Najważniejsze skróty
@@ -147,7 +150,7 @@ Na macOS klawiszem `Mod` jest `⌘`, a na Windows `Ctrl`.
 | Skrót | Działanie |
 | --- | --- |
 | `Mod+N` | Nowa notatka |
-| `Mod+Shift+N` | Nowy projekt |
+| `Mod+Shift+N` | Nowy projekt ogólny |
 | `Mod+S` | Zapisz natychmiast |
 | `Mod+F` | Znajdź i zamień w dokumencie |
 | `Mod+Shift+F` | Szukaj w całej bibliotece |

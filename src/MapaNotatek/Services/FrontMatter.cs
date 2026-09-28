@@ -92,7 +92,7 @@ public static class FrontMatter
             archived: null,
             slug: null,
             parentId: null,
-            isFolder: false,
+            itemType: ProjectItemType.Project,
             people: note.People);
         builder.Append("# ").AppendLine(note.Title);
         builder.AppendLine();
@@ -121,7 +121,7 @@ public static class FrontMatter
             archived: project.IsArchived,
             project.Slug,
             project.ParentId,
-            project.IsFolder,
+            project.ItemType,
             project.People);
         builder.Append("# ").AppendLine(project.Name);
         builder.AppendLine();
@@ -378,7 +378,7 @@ public static class FrontMatter
         bool? archived,
         string? slug,
         string? parentId,
-        bool isFolder,
+        ProjectItemType itemType,
         IEnumerable<string>? people)
     {
         builder.AppendLine("---");
@@ -389,9 +389,9 @@ public static class FrontMatter
             builder.Append("slug: ").AppendLine(slug);
         }
 
-        if (type == "project" && isFolder)
+        if (type == "project" && itemType != ProjectItemType.Project)
         {
-            builder.AppendLine("kind: folder");
+            builder.Append("kind: ").AppendLine(itemType.StorageValue());
         }
 
         if (type == "project" && !string.IsNullOrWhiteSpace(parentId))

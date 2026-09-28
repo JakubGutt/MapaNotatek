@@ -7,7 +7,7 @@ public static class ShortcutCatalog
     public static IReadOnlyList<ShortcutInfo> All { get; } =
     [
         new() { Keys = PlatformKeys.Chord("N"), Action = "Nowa notatka" },
-        new() { Keys = PlatformKeys.ChordShift("N"), Action = "Nowy projekt" },
+        new() { Keys = PlatformKeys.ChordShift("N"), Action = "Nowy projekt ogólny" },
         new() { Keys = "Enter (checklist)", Action = "Zatwierdź zadanie i dodaj kolejne" },
         new() { Keys = "PPM", Action = "Menu kontekstowe na grafie / listach" },
         new() { Keys = PlatformKeys.Chord("S"), Action = "Zapisz natychmiast" },

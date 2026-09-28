@@ -36,8 +36,15 @@
                     <MenuItem Header="Procedura" Tag="procedure" Click="OnNewFromTemplate" />
                     <MenuItem Header="Notatka dzienna" Tag="daily" Click="OnNewFromTemplate" />
                 </MenuItem>
-                <MenuItem Header="Nowy projekt" Click="OnNewProject" />
-                <MenuItem Header="Nowy folder" Click="OnNewFolder" />
+                <MenuItem Header="Nowy element architektury">
+                    <MenuItem Header="System" Tag="System" Click="OnNewProjectItem" />
+                    <MenuItem Header="Produkt" Tag="Product" Click="OnNewProjectItem" />
+                    <MenuItem Header="Podsystem" Tag="Subsystem" Click="OnNewProjectItem" />
+                    <MenuItem Header="Komponent" Tag="Component" Click="OnNewProjectItem" />
+                    <Separator />
+                    <MenuItem Header="Projekt ogólny" Tag="Project" Click="OnNewProjectItem" />
+                    <MenuItem Header="Folder" Tag="Folder" Click="OnNewProjectItem" />
+                </MenuItem>
                 <MenuItem Header="Nowa osoba" Click="OnNewPerson" />
                 <Separator />
                 <MenuItem Header="Zapisz" Click="OnSave" />
@@ -65,7 +72,7 @@
                 <MenuItem Header="Otwarte zadania" Click="OnTasksViewMenu" />
                 <MenuItem Header="Osoby" Click="OnPeopleViewMenu" />
                 <Separator />
-                <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
+                <MenuItem Header="Pokaż całą strukturę" Click="OnShowAll" />
                 <MenuItem Header="Wyśrodkuj zaznaczenie" Click="OnCenterSelection" />
                 <Separator />
                 <MenuItem Header="Pokaż / ukryj panel nawigacji" Click="OnToggleSidebar" />
@@ -75,10 +82,15 @@
                 <MenuItem Header="Pomniejsz graf" Click="OnZoomOut" />
                 <MenuItem Header="Domyślne powiększenie grafu" Click="OnZoomReset" />
             </MenuItem>
-            <MenuItem Header="P_rojekt">
-                <MenuItem Header="Nowy projekt" Click="OnNewProject" />
-                <MenuItem Header="Nowy folder" Click="OnNewFolder" />
-                <MenuItem Header="Pokaż wszystkie projekty" Click="OnShowAll" />
+            <MenuItem Header="_Architektura">
+                <MenuItem Header="Nowy system" Tag="System" Click="OnNewProjectItem" />
+                <MenuItem Header="Nowy produkt" Tag="Product" Click="OnNewProjectItem" />
+                <MenuItem Header="Nowy podsystem" Tag="Subsystem" Click="OnNewProjectItem" />
+                <MenuItem Header="Nowy komponent" Tag="Component" Click="OnNewProjectItem" />
+                <Separator />
+                <MenuItem Header="Nowy projekt ogólny" Tag="Project" Click="OnNewProjectItem" />
+                <MenuItem Header="Nowy folder" Tag="Folder" Click="OnNewProjectItem" />
+                <MenuItem Header="Pokaż całą strukturę" Click="OnShowAll" />
             </MenuItem>
             <MenuItem Header="Pomo_c">
                 <MenuItem Header="Lista poleceń" Click="OnCommandPalette" />
@@ -155,20 +167,37 @@
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                            <Button Grid.Column="0" Content="Projekt" HorizontalAlignment="Stretch" Click="OnNewProject" />
-                            <Button Grid.Column="1" Content="Folder" HorizontalAlignment="Stretch" Click="OnNewFolder" />
-                        </Grid>
+                        <Button Classes="SidebarAction" Content="Dodaj element struktury ▾">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="System" Tag="System" Click="OnNewProjectItem" />
+                                    <MenuItem Header="Produkt" Tag="Product" Click="OnNewProjectItem" />
+                                    <MenuItem Header="Podsystem" Tag="Subsystem" Click="OnNewProjectItem" />
+                                    <MenuItem Header="Komponent" Tag="Component" Click="OnNewProjectItem" />
+                                    <Separator />
+                                    <MenuItem Header="Projekt ogólny" Tag="Project" Click="OnNewProjectItem" />
+                                    <MenuItem Header="Folder" Tag="Folder" Click="OnNewProjectItem" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
                     </StackPanel>
 
                     <Grid Grid.Row="3" RowDefinitions="Auto,*">
                         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="2,0,2,5">
-                            <TextBlock Classes="SectionLabel" Text="PROJEKTY I FOLDERY" />
-                            <Button Grid.Column="1"
-                                    Content="Wszystkie"
-                                    FontSize="11"
-                                    Padding="6,2"
-                                    Click="OnShowAll" />
+                            <TextBlock Classes="SectionLabel" Text="STRUKTURA" />
+                            <Button Grid.Column="1" Content="+ Dodaj" FontSize="11" Padding="6,2">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuItem Header="System" Tag="System" Click="OnNewProjectItem" />
+                                        <MenuItem Header="Produkt" Tag="Product" Click="OnNewProjectItem" />
+                                        <MenuItem Header="Podsystem" Tag="Subsystem" Click="OnNewProjectItem" />
+                                        <MenuItem Header="Komponent" Tag="Component" Click="OnNewProjectItem" />
+                                        <Separator />
+                                        <MenuItem Header="Projekt ogólny" Tag="Project" Click="OnNewProjectItem" />
+                                        <MenuItem Header="Folder" Tag="Folder" Click="OnNewProjectItem" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
                         </Grid>
                         <TreeView x:Name="ProjectsTree"
                                   Grid.Row="1"
@@ -176,7 +205,23 @@
                                   SelectionChanged="OnProjectTreeSelectionChanged">
                             <TreeView.ItemTemplate>
                                 <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
-                                    <TextBlock Text="{ReflectionBinding DisplayTitle}" TextTrimming="CharacterEllipsis" />
+                                    <Grid ColumnDefinitions="28,*" ColumnSpacing="7" ToolTip.Tip="{ReflectionBinding TypeLabel}">
+                                        <Border Width="28"
+                                                Height="20"
+                                                CornerRadius="5"
+                                                Background="{ReflectionBinding TypeColor}">
+                                            <TextBlock Text="{ReflectionBinding TypeCode}"
+                                                       Foreground="White"
+                                                       FontSize="9"
+                                                       FontWeight="Bold"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{ReflectionBinding DisplayTitle}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
                                 </TreeDataTemplate>
                             </TreeView.ItemTemplate>
                         </TreeView>
@@ -301,7 +346,7 @@
                                        FontSize="26"
                                        FontWeight="SemiBold"
                                        HorizontalAlignment="Center" />
-                            <TextBlock Text="Notatki są głównym miejscem pracy. Projekty i graf pomagają je później porządkować i łączyć."
+                            <TextBlock Text="Notatki są głównym miejscem pracy. Struktura architektury i graf pomagają je później porządkować i łączyć."
                                        TextWrapping="Wrap"
                                        TextAlignment="Center"
                                        Opacity="0.72" />
@@ -310,8 +355,8 @@
                                     MinWidth="180"
                                     Click="OnNewNote" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                                <Button Content="Nowy projekt" Click="OnNewProject" />
-                                <Button Content="Nowy folder" Click="OnNewFolder" />
+                                <Button Content="Nowy system" Tag="System" Click="OnNewProjectItem" />
+                                <Button Content="Nowy produkt" Tag="Product" Click="OnNewProjectItem" />
                             </StackPanel>
                         </StackPanel>
                     </Border>

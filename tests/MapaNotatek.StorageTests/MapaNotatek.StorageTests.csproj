@@ -15,6 +15,7 @@
     <Compile Include="../../src/MapaNotatek/Models/Note.cs" Link="Source/Models/Note.cs" />
     <Compile Include="../../src/MapaNotatek/Models/Person.cs" Link="Source/Models/Person.cs" />
     <Compile Include="../../src/MapaNotatek/Models/Project.cs" Link="Source/Models/Project.cs" />
+    <Compile Include="../../src/MapaNotatek/Models/ProjectItemType.cs" Link="Source/Models/ProjectItemType.cs" />
     <Compile Include="../../src/MapaNotatek/Services/AppStateStore.cs" Link="Source/Services/AppStateStore.cs" />
     <Compile Include="../../src/MapaNotatek/Services/AttachmentStore.cs" Link="Source/Services/AttachmentStore.cs" />
     <Compile Include="../../src/MapaNotatek/Services/BackupService.cs" Link="Source/Services/BackupService.cs" />

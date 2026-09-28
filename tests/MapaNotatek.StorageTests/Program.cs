@@ -9,6 +9,8 @@ var tests = new (string Name, Action Run)[]
     ("nowy task z panelu jest dopisywany tylko raz", NewPanelTaskIsAppendedOnce),
     ("legacy task nie jest duplikowany", LegacyTaskIsNotDuplicated),
     ("metadane projektu przechodzą round-trip", ProjectMetadataRoundTrip),
+    ("typy architektury przechodzą round-trip", ArchitectureTypesRoundTrip),
+    ("hierarchia architektury pilnuje dozwolonych relacji", ArchitectureHierarchyRules),
     ("przypisania osób są osobne od tagów", PersonAssignmentsRoundTrip),
     ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
     ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
@@ -54,6 +56,7 @@ var tests = new (string Name, Action Run)[]
     ("enter kontynuuje listy i zadania w komórkach", EnterContinuesCellLists),
     ("enter kontynuuje listy w źródle Markdown", EnterContinuesMarkdownLists),
     ("graf ma czytelne sterowanie i mapuje wikilinki", GraphWorkspaceIsDiscoverable),
+    ("graf i drzewo rozróżniają typy architektury", ArchitectureTypesAreWired),
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
@@ -364,6 +367,34 @@ static void SearchProjectTypes()
     True(SearchService.Matches("type:folder", folder));
     False(SearchService.Matches("type:project", folder));
     True(SearchService.Matches("type:project project:atlas", project));
+
+    var system = new Project { Name = "Napęd", ItemType = ProjectItemType.System };
+    var product = new Project { Name = "Moduł", ItemType = ProjectItemType.Product };
+    var subsystem = new Project { Name = "Kamera", ItemType = ProjectItemType.Subsystem };
+    var component = new Project { Name = "PCB", ItemType = ProjectItemType.Component };
+    True(SearchService.Matches("type:system", system));
+    True(SearchService.Matches("typ:produkt", product));
+    True(SearchService.Matches("type:subsystem", subsystem));
+    True(SearchService.Matches("typ:komponent", component));
+    False(SearchService.Matches("type:product", component));
+}
+
+static void ArchitectureTypesAreWired()
+{
+    var root = FindRepositoryRoot();
+    var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var graph = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml"));
+
+    True(shell.Contains("Text=\"STRUKTURA\"", StringComparison.Ordinal));
+    True(shell.Contains("Tag=\"System\"", StringComparison.Ordinal));
+    True(shell.Contains("Tag=\"Product\"", StringComparison.Ordinal));
+    True(shell.Contains("Tag=\"Subsystem\"", StringComparison.Ordinal));
+    True(shell.Contains("Tag=\"Component\"", StringComparison.Ordinal));
+    True(shell.Contains("ReflectionBinding TypeColor", StringComparison.Ordinal));
+    True(graph.Contains("Border.graph-system", StringComparison.Ordinal));
+    True(graph.Contains("Border.graph-product", StringComparison.Ordinal));
+    True(graph.Contains("Border.graph-subsystem", StringComparison.Ordinal));
+    True(graph.Contains("Border.graph-component", StringComparison.Ordinal));
 }
 
 static void PeoplePanelIsWired()
@@ -457,6 +488,42 @@ static void ProjectMetadataRoundTrip()
     Equal("true", parsed["archived"]);
     Equal("folder", parsed["kind"]);
     Equal("folder1", parsed["parent"]);
+}
+
+static void ArchitectureTypesRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new MarkdownStore(temp.Path);
+    store.EnsureFolders();
+
+    var system = store.CreateProject("Sterowanie", null, ProjectItemType.System);
+    var product = store.CreateProject("Kontroler", system.Id, ProjectItemType.Product);
+    var subsystem = store.CreateProject("Kamera", product.Id, ProjectItemType.Subsystem);
+    var component = store.CreateProject("PCB", subsystem.Id, ProjectItemType.Component);
+
+    var loaded = store.LoadProjects().ToDictionary(project => project.Id);
+    Equal(ProjectItemType.System, loaded[system.Id].ItemType);
+    Equal(ProjectItemType.Product, loaded[product.Id].ItemType);
+    Equal(ProjectItemType.Subsystem, loaded[subsystem.Id].ItemType);
+    Equal(ProjectItemType.Component, loaded[component.Id].ItemType);
+    Equal(system.Id, loaded[product.Id].ParentId);
+    Equal(product.Id, loaded[subsystem.Id].ParentId);
+    Equal(subsystem.Id, loaded[component.Id].ParentId);
+    Equal("system", FrontMatter.Parse(FrontMatter.WriteProject(system))["kind"]);
+    Equal(ProjectItemType.Project, ProjectItemTypeCatalog.Parse(null));
+}
+
+static void ArchitectureHierarchyRules()
+{
+    True(ProjectItemType.System.CanContain(ProjectItemType.Product));
+    False(ProjectItemType.System.CanContain(ProjectItemType.Component));
+    True(ProjectItemType.Product.CanContain(ProjectItemType.Subsystem));
+    True(ProjectItemType.Product.CanContain(ProjectItemType.Component));
+    False(ProjectItemType.Product.CanContain(ProjectItemType.Product));
+    True(ProjectItemType.Subsystem.CanContain(ProjectItemType.Component));
+    False(ProjectItemType.Component.CanContain(ProjectItemType.Component));
+    True(ProjectItemType.Folder.CanContain(ProjectItemType.System));
+    True(ProjectItemType.Project.CanContain(ProjectItemType.Component));
 }
 
 static void PersonAssignmentsRoundTrip()

@@ -51,14 +51,13 @@ public static class SearchService
         "title" or "tytuł" => Contains(project.Name, term.Value),
         "body" or "treść" => Contains(project.Description, term.Value),
         "tag" or "project" or "projekt" => Contains(project.Slug, term.Value),
-        "type" or "typ" => project.IsFolder
-            ? Contains("folder katalog", term.Value)
-            : Contains("project projekt", term.Value),
+        "type" or "typ" => Contains(project.ItemType.SearchText(), term.Value),
         "has" or "ma" when IsTaskValue(term.Value) => project.Checklist.Count > 0,
         "has" or "ma" => false,
         _ => Contains(project.Name, term.Value) ||
              Contains(project.Description, term.Value) ||
-             Contains(project.Slug, term.Value)
+             Contains(project.Slug, term.Value) ||
+             Contains(project.ItemType.SearchText(), term.Value)
     };
 
     private static IReadOnlyList<SearchTerm> Parse(string query)

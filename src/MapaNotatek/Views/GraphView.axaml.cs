@@ -167,9 +167,9 @@ public partial class GraphView : UserControl
             var childCount = projects.Count(child => string.Equals(child.ParentId, project.Id, StringComparison.OrdinalIgnoreCase));
             var openTasks = project.Checklist.Count(item => !item.IsDone);
             var meta = project.IsFolder
-                ? $"Folder · {childCount} elementów"
-                : $"Projekt · {noteCount} notatek · {openTasks} zadań";
-            AddNode(project.Id, project.Name, meta, isProject: true, isFolder: project.IsFolder);
+                ? $"{project.ItemType.Label()} · {childCount} elementów"
+                : $"{project.ItemType.Label()} · {childCount} dzieci · {noteCount} notatek · {openTasks} zadań";
+            AddNode(project.Id, project.Name, meta, project.ItemType);
         }
 
         foreach (var note in notes)
@@ -177,12 +177,17 @@ public partial class GraphView : UserControl
             var openTasks = note.Checklist.Count(item => !item.IsDone);
             var tagLabel = note.Tags.Count == 0 ? "bez tagów" : $"{note.Tags.Count} tagów";
             var meta = openTasks == 0 ? $"Notatka · {tagLabel}" : $"Notatka · {tagLabel} · {openTasks} zadań";
-            AddNode(note.Id, note.Title, meta, isProject: false, isFolder: false);
+            AddNode(note.Id, note.Title, meta, itemType: null);
         }
 
-        var projectCount = projects.Count(project => !project.IsFolder);
+        var systemCount = projects.Count(project => project.ItemType == ProjectItemType.System);
+        var productCount = projects.Count(project => project.ItemType == ProjectItemType.Product);
+        var subsystemCount = projects.Count(project => project.ItemType == ProjectItemType.Subsystem);
+        var componentCount = projects.Count(project => project.ItemType == ProjectItemType.Component);
+        var projectCount = projects.Count(project => project.ItemType == ProjectItemType.Project);
         var folderCount = projects.Count(project => project.IsFolder);
-        GraphSummaryText.Text = $"{projectCount} projektów · {folderCount} folderów · {notes.Count} notatek · {_edges.Count} relacji";
+        var architectureCount = systemCount + productCount + subsystemCount + componentCount;
+        GraphSummaryText.Text = $"{architectureCount} elementów architektury · {projectCount + folderCount} pomocniczych · {notes.Count} notatek · {_edges.Count} relacji";
         HighlightSelection();
     }
 
@@ -195,7 +200,7 @@ public partial class GraphView : UserControl
 
         var options = new List<ProjectFilterOption>
         {
-            new(null, "Wszystkie projekty")
+            new(null, "Cała struktura")
         };
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -207,11 +212,11 @@ public partial class GraphView : UserControl
             }
 
             var branch = depth == 0 ? string.Empty : new string('·', Math.Min(depth, 4)) + " ";
-            var kind = project.IsFolder ? "Folder" : "Projekt";
+            var kind = project.ItemType.Label();
             options.Add(new ProjectFilterOption(project.Id, $"{branch}{kind} · {project.Name}"));
             foreach (var child in ViewModel.Projects
                          .Where(candidate => string.Equals(candidate.ParentId, project.Id, StringComparison.OrdinalIgnoreCase))
-                         .OrderBy(candidate => candidate.IsFolder ? 0 : 1)
+                         .OrderBy(candidate => candidate.ItemType.SortOrder())
                          .ThenBy(candidate => candidate.Name, StringComparer.CurrentCultureIgnoreCase))
             {
                 AddBranch(child, depth + 1);
@@ -221,7 +226,7 @@ public partial class GraphView : UserControl
         foreach (var root in ViewModel.Projects
                      .Where(project => string.IsNullOrWhiteSpace(project.ParentId) ||
                                        ViewModel.Projects.All(candidate => !string.Equals(candidate.Id, project.ParentId, StringComparison.OrdinalIgnoreCase)))
-                     .OrderBy(project => project.IsFolder ? 0 : 1)
+                     .OrderBy(project => project.ItemType.SortOrder())
                      .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase))
         {
             AddBranch(root, 0);
@@ -344,7 +349,7 @@ public partial class GraphView : UserControl
         return geometry;
     }
 
-    private void AddNode(string id, string title, string meta, bool isProject, bool isFolder)
+    private void AddNode(string id, string title, string meta, ProjectItemType? itemType)
     {
         if (ViewModel is null)
         {
@@ -352,9 +357,10 @@ public partial class GraphView : UserControl
         }
 
         var position = LayoutService.Get(ViewModel.State.NodePositions, id);
+        var isProject = itemType.HasValue;
         var width = isProject ? ProjectNodeWidth : NoteNodeWidth;
         var height = isProject ? ProjectNodeHeight : NoteNodeHeight;
-        var icon = isFolder ? "F" : isProject ? "P" : "N";
+        var icon = itemType?.Code() ?? "N";
         var iconBackground = isProject
             ? Color.FromArgb(45, 255, 255, 255)
             : Color.FromArgb(34, 40, 103, 214);
@@ -409,8 +415,8 @@ public partial class GraphView : UserControl
             Child = content
         };
         host.Classes.Add("graph-node");
-        host.Classes.Add(isFolder ? "graph-folder" : isProject ? "graph-project" : "graph-note");
-        host.Tag = new NodeTag(id, isProject, isFolder, titleBlock.Text ?? "Bez tytułu", meta, width, height, host);
+        host.Classes.Add(itemType?.GraphClass() ?? "graph-note");
+        host.Tag = new NodeTag(id, itemType, titleBlock.Text ?? "Bez tytułu", meta, width, height, host);
         host.PointerPressed += OnNodePressed;
         host.PointerMoved += OnNodeMoved;
         host.PointerReleased += OnNodeReleased;
@@ -474,7 +480,7 @@ public partial class GraphView : UserControl
 
         if (selectedId is not null && _nodes.TryGetValue(selectedId, out var selectedHost) && selectedHost.Tag is NodeTag selectedTag)
         {
-            GraphSelectionKind.Text = selectedTag.IsFolder ? "FOLDER" : selectedTag.IsProject ? "PROJEKT" : "NOTATKA";
+            GraphSelectionKind.Text = selectedTag.ItemType?.Label().ToUpperInvariant() ?? "NOTATKA";
             GraphSelectionTitle.Text = selectedTag.Title;
             GraphSelectionMeta.Text = $"{selectedTag.Meta} · {Math.Max(0, relatedIds.Count - 1)} powiązań";
             GraphSelectionCard.IsVisible = true;
@@ -735,18 +741,26 @@ public partial class GraphView : UserControl
             var center = GetViewportCenterInCanvas();
             ViewModel.NewNote(center.X, center.Y);
         }));
-        menu.Items.Add(Item("Nowy podprojekt", () =>
+        if (project is not null)
         {
-            var center = GetViewportCenterInCanvas();
-            ViewModel.NewProject(center.X + 40, center.Y + 40, parentId: id);
-        }));
-        menu.Items.Add(Item("Nowy folder wewnątrz", () =>
-        {
-            var center = GetViewportCenterInCanvas();
-            ViewModel.NewFolder(center.X + 40, center.Y + 40, parentId: id);
-        }));
+            var addInside = new MenuItem { Header = "Dodaj wewnątrz" };
+            foreach (var itemType in project.ItemType.AllowedChildren())
+            {
+                var capturedType = itemType;
+                addInside.Items.Add(Item(itemType.Label(), () =>
+                {
+                    var center = GetViewportCenterInCanvas();
+                    ViewModel.NewProject(capturedType, center.X + 40, center.Y + 40, id);
+                }));
+            }
+
+            if (addInside.Items.Count > 0)
+            {
+                menu.Items.Add(addInside);
+            }
+        }
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Filtruj tylko ten projekt", () =>
+        menu.Items.Add(Item("Filtruj tylko ten element", () =>
         {
             if (project is not null)
             {
@@ -771,7 +785,7 @@ public partial class GraphView : UserControl
             }
         }));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item(project?.IsFolder == true ? "Usuń folder…" : "Usuń projekt…", () =>
+        menu.Items.Add(Item($"Usuń: {project?.ItemType.Label().ToLowerInvariant() ?? "element"}…", () =>
         {
             if (project is null)
             {
@@ -823,10 +837,16 @@ public partial class GraphView : UserControl
         var point = _lastContextCanvasPoint ?? GetViewportCenterInCanvas();
         var menu = new ContextMenu();
         menu.Items.Add(Item("Nowa notatka tutaj", () => ViewModel!.NewNote(point.X, point.Y)));
-        menu.Items.Add(Item("Nowy projekt tutaj", () => ViewModel!.NewProject(point.X, point.Y)));
-        menu.Items.Add(Item("Nowy folder tutaj", () => ViewModel!.NewFolder(point.X, point.Y)));
+        var addItem = new MenuItem { Header = "Nowy element tutaj" };
+        foreach (var itemType in ProjectItemTypeCatalog.CreatableTypes)
+        {
+            var capturedType = itemType;
+            addItem.Items.Add(Item(itemType.Label(), () => ViewModel!.NewProject(capturedType, point.X, point.Y)));
+        }
+
+        menu.Items.Add(addItem);
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Pokaż wszystkie projekty", () => ViewModel!.ShowAllProjects()));
+        menu.Items.Add(Item("Pokaż całą strukturę", () => ViewModel!.ShowAllProjects()));
         menu.Items.Add(Item("Domyślne powiększenie", () =>
         {
             SetZoom(1);
@@ -1095,13 +1115,15 @@ public partial class GraphView : UserControl
 
     private sealed record NodeTag(
         string Id,
-        bool IsProject,
-        bool IsFolder,
+        ProjectItemType? ItemType,
         string Title,
         string Meta,
         double Width,
         double Height,
-        Border Card);
+        Border Card)
+    {
+        public bool IsProject => ItemType.HasValue;
+    }
 
     private sealed record ProjectFilterOption(string? ProjectId, string Label)
     {

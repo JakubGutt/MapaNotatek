@@ -28,11 +28,11 @@ Szczegółowe wymagania i kryteria odbioru znajdują się w [FUNCTIONAL_REQUIREM
 
 ### Znajdowanie i organizacja
 
-- projekty i zagnieżdżone foldery, tagi, checklisty, zadania zbiorcze, przypięte i ostatnie elementy;
+- systemy, produkty, podsystemy i komponenty z walidowaną hierarchią oraz pomocnicze projekty i foldery;
 - panel osób z lokalnymi awatarami i osobnymi przypisaniami do projektów, folderów, notatek oraz zadań;
 - wyszukiwanie zwykłe, pełne frazy, wykluczenia i filtry pól;
 - kosz z przywracaniem notatek oraz projektów;
-- graf projektów, notatek i wikilinków jako widok pomocniczy.
+- graf architektury, notatek i wikilinków jako widok pomocniczy, z odrębnym kolorem każdego typu.
 
 ### Bezpieczeństwo danych i offline
 

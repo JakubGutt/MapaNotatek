@@ -29,11 +29,31 @@
             <Setter Property="BorderBrush" Value="#5EEAD4" />
             <Setter Property="BoxShadow" Value="0 7 20 0 #26087F75" />
         </Style>
+        <Style Selector="Border.graph-system">
+            <Setter Property="Background" Value="#4338CA" />
+            <Setter Property="BorderBrush" Value="#A5B4FC" />
+            <Setter Property="BoxShadow" Value="0 7 20 0 #264338CA" />
+        </Style>
+        <Style Selector="Border.graph-product">
+            <Setter Property="Background" Value="#15803D" />
+            <Setter Property="BorderBrush" Value="#86EFAC" />
+            <Setter Property="BoxShadow" Value="0 7 20 0 #2615803D" />
+        </Style>
+        <Style Selector="Border.graph-subsystem">
+            <Setter Property="Background" Value="#B45309" />
+            <Setter Property="BorderBrush" Value="#FCD34D" />
+            <Setter Property="BoxShadow" Value="0 7 20 0 #26B45309" />
+        </Style>
+        <Style Selector="Border.graph-component">
+            <Setter Property="Background" Value="#BE185D" />
+            <Setter Property="BorderBrush" Value="#F9A8D4" />
+            <Setter Property="BoxShadow" Value="0 7 20 0 #26BE185D" />
+        </Style>
         <Style Selector="Border.graph-note">
             <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}" />
         </Style>
-        <Style Selector="Border.graph-project TextBlock.graph-title, Border.graph-folder TextBlock.graph-title">
+        <Style Selector="Border.graph-project TextBlock.graph-title, Border.graph-folder TextBlock.graph-title, Border.graph-system TextBlock.graph-title, Border.graph-product TextBlock.graph-title, Border.graph-subsystem TextBlock.graph-title, Border.graph-component TextBlock.graph-title">
             <Setter Property="Foreground" Value="White" />
         </Style>
         <Style Selector="Border.graph-project TextBlock.graph-meta">
@@ -41,6 +61,9 @@
         </Style>
         <Style Selector="Border.graph-folder TextBlock.graph-meta">
             <Setter Property="Foreground" Value="#CCFBF1" />
+        </Style>
+        <Style Selector="Border.graph-system TextBlock.graph-meta, Border.graph-product TextBlock.graph-meta, Border.graph-subsystem TextBlock.graph-meta, Border.graph-component TextBlock.graph-meta">
+            <Setter Property="Foreground" Value="#F5F7FF" />
         </Style>
         <Style Selector="Border.graph-note TextBlock.graph-title">
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
@@ -94,7 +117,9 @@
                 <TextBlock x:Name="GraphSummaryText"
                            FontSize="13"
                            FontWeight="SemiBold"
-                           Text="0 projektów · 0 notatek · 0 relacji" />
+                           MaxWidth="320"
+                           TextWrapping="Wrap"
+                           Text="0 elementów architektury · 0 notatek · 0 relacji" />
                 <TextBlock Classes="metadata"
                            Margin="0,3,0,0"
                            Text="ZAKRES GRAFU" />
@@ -102,12 +127,28 @@
                           MinWidth="260"
                           MinHeight="34"
                           MaxDropDownHeight="360"
-                          ToolTip.Tip="Pokaż wszystkie dane albo tylko jeden projekt i jego zawartość"
+                          ToolTip.Tip="Pokaż całą strukturę albo jeden element i jego zawartość"
                           SelectionChanged="OnGraphProjectFilterChanged" />
-                <StackPanel Orientation="Horizontal" Spacing="12">
+                <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="5" MaxWidth="270">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#4338CA" />
+                        <TextBlock Classes="metadata" Text="system" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#15803D" />
+                        <TextBlock Classes="metadata" Text="produkt" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#B45309" />
+                        <TextBlock Classes="metadata" Text="podsystem" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#BE185D" />
+                        <TextBlock Classes="metadata" Text="komponent" />
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="5">
                         <Ellipse Width="7" Height="7" Fill="#285FBF" />
-                        <TextBlock Classes="metadata" Text="projekt" />
+                        <TextBlock Classes="metadata" Text="ogólny" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="5">
                         <Ellipse Width="7" Height="7" Fill="#087F75" />
@@ -117,7 +158,7 @@
                         <Ellipse Width="7" Height="7" Fill="#A855F7" />
                         <TextBlock Classes="metadata" Text="[[link]]" />
                     </StackPanel>
-                </StackPanel>
+                </WrapPanel>
             </StackPanel>
         </Border>
 

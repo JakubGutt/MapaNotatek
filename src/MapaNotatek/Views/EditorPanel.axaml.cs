@@ -71,10 +71,18 @@ public partial class EditorPanel : UserControl
         if (ViewModel.SelectedProject is { } project)
         {
             ProjectPanel.IsVisible = true;
-            ProjectKindLabel.Text = project.IsFolder ? "FOLDER" : "PROJEKT";
-            ProjectHeaderContextText.Text = project.IsFolder
-                ? "Zawartość folderu i powiązane materiały"
-                : "Opis, zadania i materiały w jednym miejscu";
+            ProjectKindLabel.Text = project.ItemType.Label().ToUpperInvariant();
+            ProjectWorkspaceTitleText.Text = project.ItemType.Label() + " · szczegóły";
+            ProjectHeaderContextText.Text = project.ItemType.ContextDescription();
+            ProjectOverviewLabel.Text = project.ItemType switch
+            {
+                ProjectItemType.System => "O SYSTEMIE",
+                ProjectItemType.Product => "O PRODUKCIE",
+                ProjectItemType.Subsystem => "O PODSYSTEMIE",
+                ProjectItemType.Component => "O KOMPONENCIE",
+                ProjectItemType.Folder => "O FOLDERZE",
+                _ => "O PROJEKCIE OGÓLNYM"
+            };
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
             ProjectPeopleBox.Text = PersonTagService.Format(project.People);
