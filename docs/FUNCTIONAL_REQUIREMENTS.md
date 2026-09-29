@@ -80,7 +80,8 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-PE-03 — gotowe:** panel osób pokazuje awatary jako węzły i łączy osoby współdzielące kontekst.
 - **FR-PE-04 — gotowe:** szczegóły osoby zbierają jej projekty, foldery, notatki oraz zadania i pozwalają otworzyć źródło relacji.
 - **FR-PE-05 — gotowe:** osobę przypisuje się przez selektor wielokrotnego wyboru zasilany rejestrem panelu Osoby; niezarejestrowanego identyfikatora nie można zapisać.
-- **FR-PE-05 — gotowe:** bez zdjęcia aplikacja pokazuje inicjały, a importowany awatar pozostaje lokalny.
+- **FR-PE-06 — gotowe:** bez zdjęcia aplikacja pokazuje inicjały, a importowany awatar pozostaje lokalny.
+- **FR-PE-07 — gotowe:** profil osoby można przenieść do kosza po potwierdzeniu; operacja usuwa jej przypisania z projektów, notatek i zadań, a sam profil można później przywrócić.
 
 ### FR-DATA — zapis, historia i odzyskiwanie
 

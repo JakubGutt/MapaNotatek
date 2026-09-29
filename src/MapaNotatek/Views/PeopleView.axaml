@@ -197,7 +197,12 @@
                             <TextBlock Text="Dwukrotne kliknięcie otwiera źródło powiązania."
                                        Classes="metadata"
                                        TextWrapping="Wrap"
-                                       Margin="0,3,0,12" />
+                                       Margin="0,3,0,4" />
+                            <Button Content="Przenieś osobę do kosza…"
+                                    HorizontalAlignment="Left"
+                                    Foreground="{DynamicResource DangerBrush}"
+                                    Margin="0,8,0,12"
+                                    Click="OnDeletePerson" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

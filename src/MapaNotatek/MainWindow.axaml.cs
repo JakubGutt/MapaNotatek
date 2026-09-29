@@ -194,6 +194,7 @@ public partial class MainWindow : Window
                 _vm.SelectNote(note, openEditor: true, focusGraph: true);
                 ShowEditorPage();
             };
+            _peopleControl.DeletePersonRequested += person => _ = ConfirmDeletePersonAsync(person);
             _peopleControl.Refresh();
             _graphControl.Refresh();
             _graphControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
@@ -886,6 +887,49 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ConfirmDeletePersonAsync(Person person)
+    {
+        var assignments = _vm.CountPersonAssignments(person);
+        var dialog = new Window
+        {
+            Title = "Przenieś osobę do kosza",
+            Width = 460,
+            Height = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+        var ok = false;
+        var message = new TextBlock
+        {
+            Text = $"Przenieść osobę „{person.Name}” do kosza? Zostanie usunięta z {assignments.Projects} projektów i folderów, {assignments.Notes} notatek oraz {assignments.Tasks} zadań. Profil będzie można przywrócić, ale przypisania nie zostaną wtedy odtworzone automatycznie.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(16)
+        };
+        var deleteBtn = new Button { Content = "Przenieś do kosza", MinWidth = 140, IsDefault = true };
+        var cancelBtn = new Button { Content = "Anuluj", MinWidth = 90, IsCancel = true };
+        deleteBtn.Click += (_, _) => { ok = true; dialog.Close(); };
+        cancelBtn.Click += (_, _) => dialog.Close();
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(16),
+            Children = { cancelBtn, deleteBtn }
+        };
+        var root = new DockPanel();
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+        root.Children.Add(message);
+        dialog.Content = root;
+        await dialog.ShowDialog(this);
+        if (ok && _vm.DeletePerson(person))
+        {
+            _peopleControl.Refresh();
+            UpdateEmptyState();
+        }
+    }
+
     private async void OnDeleteProject(object? sender, RoutedEventArgs e)
     {
         var project = _vm.SelectedProject ??
@@ -1104,10 +1148,13 @@ public partial class MainWindow : Window
     {
         var trashedNotes = _vm.LoadTrashedNotes().ToList();
         var trashedProjects = _vm.LoadTrashedProjects().ToList();
+        var trashedPeople = _vm.LoadTrashedPeople().ToList();
         var entries = trashedNotes
-            .Select(note => (Note: (Note?)note, Project: (Project?)null, Label: $"Notatka · {note.Title}"))
+            .Select(note => (Item: (object)note, Label: $"Notatka · {note.Title}"))
             .Concat(trashedProjects.Select(project =>
-                (Note: (Note?)null, Project: (Project?)project, Label: $"{project.ItemType.Label()} · {project.Name}")))
+                (Item: (object)project, Label: $"{project.ItemType.Label()} · {project.Name}")))
+            .Concat(trashedPeople.Select(person =>
+                (Item: (object)person, Label: $"Osoba · {person.Name}")))
             .ToList();
         var list = new ListBox
         {
@@ -1152,13 +1199,17 @@ public partial class MainWindow : Window
                 var entry = entries[list.SelectedIndex];
                 try
                 {
-                    if (entry.Note is not null)
+                    if (entry.Item is Note note)
                     {
-                        _vm.RestoreNoteFromTrash(entry.Note);
+                        _vm.RestoreNoteFromTrash(note);
                     }
-                    else if (entry.Project is not null)
+                    else if (entry.Item is Project project)
                     {
-                        _vm.RestoreProjectFromTrash(entry.Project);
+                        _vm.RestoreProjectFromTrash(project);
+                    }
+                    else if (entry.Item is Person person)
+                    {
+                        _vm.RestorePersonFromTrash(person);
                     }
 
                     dialog.Close();

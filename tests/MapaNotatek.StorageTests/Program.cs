@@ -16,6 +16,7 @@ var tests = new (string Name, Action Run)[]
     ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
     ("priorytet zadań przechodzi round-trip", TaskPriorityRoundTrip),
     ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
+    ("osobę można przenieść do kosza i przywrócić", PersonTrashRoundTrip),
     ("ponowny zapis tworzy kopię awaryjną", AtomicSaveCreatesBackup),
     ("nieudana zmiana nazwy zachowuje stary plik", FailedRenamePreservesOriginal),
     ("błąd archiwizacji nazwy wycofuje nowy plik", FailedRenameArchiveRollsBack),
@@ -453,6 +454,9 @@ static void PeoplePanelIsWired()
     False(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"DetailAvatar\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"PersonTasksList\"", StringComparison.Ordinal));
+    True(people.Contains("Click=\"OnDeletePerson\"", StringComparison.Ordinal));
+    True(shellCode.Contains("ConfirmDeletePersonAsync", StringComparison.Ordinal));
+    True(shellCode.Contains("DeletePersonRequested", StringComparison.Ordinal));
 }
 
 static void ClickOutsideDismissesTextEditing()
@@ -696,6 +700,28 @@ static void PersonStoreRoundTrip()
     Equal("Prowadzi wdrożenie.", loaded.Description);
     Equal(person.AvatarPath, loaded.AvatarPath);
     True(File.Exists(Path.Combine(store.PeopleFolder, "anna-kowalska.md")));
+}
+
+static void PersonTrashRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new MarkdownStore(temp.Path);
+    var person = store.CreatePerson("Anna Kowalska");
+    person.Role = "Właścicielka produktu";
+    store.SavePerson(person);
+    var originalPath = person.FilePath;
+
+    store.MovePersonToTrash(person);
+    False(File.Exists(originalPath));
+    True(File.Exists(person.FilePath));
+    True(person.FilePath.StartsWith(store.TrashedPeopleFolder, StringComparison.Ordinal));
+
+    var trashed = store.LoadTrashedPeople().Single();
+    Equal("Anna Kowalska", trashed.Name);
+    store.RestorePersonFromTrash(trashed);
+    True(File.Exists(trashed.FilePath));
+    Equal(1, store.LoadPeople().Count);
+    Equal(0, store.LoadTrashedPeople().Count);
 }
 
 static void AtomicSaveCreatesBackup()

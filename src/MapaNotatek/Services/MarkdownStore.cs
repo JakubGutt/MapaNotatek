@@ -58,6 +58,7 @@ public sealed class MarkdownStore
     public string PeopleFolder => Path.Combine(Root, "People");
     public string TrashFolder => Path.Combine(Root, "Trash");
     public string TrashedProjectsFolder => Path.Combine(TrashFolder, "Projects");
+    public string TrashedPeopleFolder => Path.Combine(TrashFolder, "People");
 
     public IReadOnlyList<StorageReadIssue> ReadIssues => _readIssues.Values
         .OrderBy(issue => issue.Area)
@@ -180,6 +181,37 @@ public sealed class MarkdownStore
         }
 
         return projects.OrderByDescending(project => project.Modified).ToList();
+    }
+
+    public List<Person> LoadTrashedPeople()
+    {
+        var people = new List<Person>();
+        foreach (var file in EnumerateMarkdownFiles(TrashedPeopleFolder, StorageArea.Trash))
+        {
+            try
+            {
+                SafeFileStorage.ValidateContainedFilePath(TrashedPeopleFolder, file);
+                people.Add(ReadPerson(file));
+            }
+            catch (Exception primaryError)
+            {
+                if (TryReadPersonBackup(
+                        file,
+                        TrashedPeopleFolder,
+                        StorageArea.Trash,
+                        primaryError,
+                        out var recovered))
+                {
+                    people.Add(recovered!);
+                }
+                else if (!HasIssue(StorageArea.Trash, file))
+                {
+                    ReportIssue(StorageArea.Trash, file, "Nie można odczytać osoby z kosza.", primaryError);
+                }
+            }
+        }
+
+        return people.OrderByDescending(person => person.Modified).ToList();
     }
 
     public Project CreateProject(string name, string? parentId = null, bool isFolder = false)
@@ -342,6 +374,77 @@ public sealed class MarkdownStore
         File.Move(source, destination, overwrite: false);
         project.FilePath = destination;
         TryMoveSidecarBackup(source, destination, ProjectsFolder, TrashedProjectsFolder);
+    }
+
+    public void MovePersonToTrash(Person person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        if (string.IsNullOrWhiteSpace(person.FilePath) || !File.Exists(person.FilePath))
+        {
+            SavePerson(person);
+        }
+
+        var source = SafeFileStorage.ValidateContainedFilePath(PeopleFolder, person.FilePath);
+        var destination = SafeFileStorage.GetContainedFilePath(TrashedPeopleFolder, Path.GetFileName(source));
+        destination = UniquePath(TrashedPeopleFolder, destination);
+        File.Move(source, destination, overwrite: false);
+        person.FilePath = destination;
+        TryMoveSidecarBackup(source, destination, PeopleFolder, TrashedPeopleFolder);
+    }
+
+    public void RestorePersonFromTrash(Person person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        var source = SafeFileStorage.ValidateContainedFilePath(TrashedPeopleFolder, person.FilePath);
+        var originalSlug = person.Slug;
+        var originalPath = person.FilePath;
+        var originalHash = person.PersistedContentHash;
+        var existingSlugs = LoadPeople()
+            .Where(existing => !string.Equals(existing.Id, person.Id, StringComparison.OrdinalIgnoreCase))
+            .Select(existing => existing.Slug);
+        person.Slug = SlugHelper.Unique(person.Slug, existingSlugs);
+        var destination = SafeFileStorage.GetContainedFilePath(PeopleFolder, $"{person.Slug}.md");
+        EnsureTargetIsAvailable(destination, previousPath: null);
+        string? copiedBackup = null;
+        var sourceBackup = SafeFileStorage.GetContainedFilePath(
+            TrashedPeopleFolder,
+            Path.GetFileName(source) + ".bak");
+        try
+        {
+            var content = FrontMatter.WritePerson(person);
+            SafeFileStorage.AtomicWriteAllText(destination, content);
+            if (File.Exists(sourceBackup))
+            {
+                var backupDestination = SafeFileStorage.GetContainedFilePath(
+                    PeopleFolder,
+                    Path.GetFileName(destination) + ".bak");
+                copiedBackup = UniquePath(PeopleFolder, backupDestination);
+                File.Copy(sourceBackup, copiedBackup, overwrite: false);
+            }
+
+            if (File.Exists(source))
+            {
+                File.Delete(source);
+            }
+
+            person.FilePath = destination;
+            person.PersistedContentHash = ComputeHash(content);
+        }
+        catch
+        {
+            TryDeleteFile(destination);
+            if (copiedBackup is not null)
+            {
+                TryDeleteFile(copiedBackup);
+            }
+
+            person.Slug = originalSlug;
+            person.FilePath = originalPath;
+            person.PersistedContentHash = originalHash;
+            throw;
+        }
+
+        TryDeleteFile(sourceBackup);
     }
 
     public void RestoreProjectFromTrash(Project project)
@@ -643,13 +746,21 @@ public sealed class MarkdownStore
         }
     }
 
-    private bool TryReadPersonBackup(string primaryPath, Exception primaryError, out Person? recovered)
+    private bool TryReadPersonBackup(string primaryPath, Exception primaryError, out Person? recovered) =>
+        TryReadPersonBackup(primaryPath, PeopleFolder, StorageArea.People, primaryError, out recovered);
+
+    private bool TryReadPersonBackup(
+        string primaryPath,
+        string folder,
+        StorageArea area,
+        Exception primaryError,
+        out Person? recovered)
     {
         recovered = null;
         var backupPath = primaryPath + ".bak";
         try
         {
-            SafeFileStorage.ValidateContainedFilePath(PeopleFolder, backupPath);
+            SafeFileStorage.ValidateContainedFilePath(folder, backupPath);
             if (!File.Exists(backupPath))
             {
                 return false;
@@ -657,7 +768,7 @@ public sealed class MarkdownStore
 
             recovered = ReadPerson(backupPath, primaryPath);
             ReportIssue(
-                StorageArea.People,
+                area,
                 primaryPath,
                 "Plik osoby jest uszkodzony lub niedostępny; wczytano kopię awaryjną.",
                 primaryError,
@@ -667,7 +778,7 @@ public sealed class MarkdownStore
         catch (Exception backupError)
         {
             ReportIssue(
-                StorageArea.People,
+                area,
                 primaryPath,
                 "Nie można odczytać pliku osoby ani jego kopii awaryjnej.",
                 new AggregateException(primaryError, backupError));
@@ -697,6 +808,7 @@ public sealed class MarkdownStore
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "People"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash", "Projects"));
+        SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash", "People"));
     }
 
     private void ClearIssues(StorageArea area)

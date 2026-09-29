@@ -17,6 +17,10 @@ public enum CenterViewKind
 
 public sealed class MainViewModel : ObservableObject
 {
+    private sealed record PersonAssignmentSnapshot(
+        List<string> DocumentPeople,
+        List<List<string>> TaskPeople);
+
     private readonly AppStateStore _stateStore = new();
     private readonly StorageReadIssue? _startupStorageIssue;
     private readonly DispatcherTimer _saveTimer;
@@ -278,6 +282,155 @@ public sealed class MainViewModel : ObservableObject
         StatusText = "Dodano osobę";
         PeopleChanged?.Invoke();
         return person;
+    }
+
+    public (int Projects, int Notes, int Tasks) CountPersonAssignments(Person person)
+    {
+        var projectCount = Projects.Count(project => PersonTagService.Contains(project.People, person.Slug));
+        var noteCount = Notes.Count(note => PersonTagService.Contains(note.People, person.Slug));
+        var taskCount = Projects.SelectMany(project => project.Checklist)
+            .Concat(Notes.SelectMany(note => note.Checklist))
+            .Count(task => PersonTagService.Contains(task.People, person.Slug));
+        return (projectCount, noteCount, taskCount);
+    }
+
+    public bool DeletePerson(Person person)
+    {
+        if (!FlushPendingSaves())
+        {
+            StatusText = "Nie przeniesiono osoby do kosza, ponieważ nie udało się zapisać zmian";
+            return false;
+        }
+
+        var affectedProjects = Projects
+            .Where(project => PersonTagService.Contains(project.People, person.Slug) ||
+                              project.Checklist.Any(task => PersonTagService.Contains(task.People, person.Slug)))
+            .ToList();
+        var affectedNotes = Notes
+            .Where(note => PersonTagService.Contains(note.People, person.Slug) ||
+                           note.Checklist.Any(task => PersonTagService.Contains(task.People, person.Slug)))
+            .ToList();
+        var projectSnapshots = affectedProjects.ToDictionary(
+            project => project,
+            project => new PersonAssignmentSnapshot(
+                project.People.ToList(),
+                project.Checklist.Select(task => task.People.ToList()).ToList()));
+        var noteSnapshots = affectedNotes.ToDictionary(
+            note => note,
+            note => new PersonAssignmentSnapshot(
+                note.People.ToList(),
+                note.Checklist.Select(task => task.People.ToList()).ToList()));
+
+        try
+        {
+            Store.MovePersonToTrash(person);
+            foreach (var project in affectedProjects)
+            {
+                RemovePersonAssignment(project.People, project.Checklist, person.Slug);
+                SaveProjectWithHistory(project);
+            }
+
+            foreach (var note in affectedNotes)
+            {
+                RemovePersonAssignment(note.People, note.Checklist, person.Slug);
+                SaveNoteWithHistory(note);
+            }
+        }
+        catch (Exception operationError)
+        {
+            var rollbackErrors = new List<Exception>();
+            try
+            {
+                if (person.FilePath.StartsWith(Store.TrashedPeopleFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    Store.RestorePersonFromTrash(person);
+                }
+            }
+            catch (Exception rollbackError)
+            {
+                rollbackErrors.Add(rollbackError);
+            }
+
+            RestorePersonAssignments(projectSnapshots);
+            RestorePersonAssignments(noteSnapshots);
+            foreach (var project in affectedProjects)
+            {
+                try
+                {
+                    SaveProjectWithHistory(project);
+                }
+                catch (Exception rollbackError)
+                {
+                    _pendingSaveProjects[project.Id] = project;
+                    rollbackErrors.Add(rollbackError);
+                }
+            }
+
+            foreach (var note in affectedNotes)
+            {
+                try
+                {
+                    SaveNoteWithHistory(note);
+                }
+                catch (Exception rollbackError)
+                {
+                    _pendingSaveNotes[note.Id] = note;
+                    rollbackErrors.Add(rollbackError);
+                }
+            }
+
+            var error = rollbackErrors.Count == 0
+                ? operationError
+                : new IOException(
+                    "Nie udało się usunąć osoby ani w pełni wycofać zmian przypisań.",
+                    new AggregateException([operationError, .. rollbackErrors]));
+            RecordSaveFailure(error);
+            PeopleChanged?.Invoke();
+            EditorChanged?.Invoke();
+            return false;
+        }
+
+        _pendingSavePeople.Remove(person.Id);
+        People.Remove(person);
+        RefreshVisible();
+        RefreshRelated();
+        PeopleChanged?.Invoke();
+        GraphChanged?.Invoke();
+        EditorChanged?.Invoke();
+        StatusText = $"Osobę „{person.Name}” przeniesiono do kosza i usunięto jej przypisania";
+        return true;
+    }
+
+    private static void RemovePersonAssignment(
+        List<string> documentPeople,
+        IEnumerable<ChecklistItem> checklist,
+        string slug)
+    {
+        documentPeople.RemoveAll(value => string.Equals(value, slug, StringComparison.OrdinalIgnoreCase));
+        foreach (var task in checklist)
+        {
+            task.People.RemoveAll(value => string.Equals(value, slug, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private static void RestorePersonAssignments<T>(
+        IReadOnlyDictionary<T, PersonAssignmentSnapshot> snapshots) where T : class
+    {
+        foreach (var (source, snapshot) in snapshots)
+        {
+            var (documentPeople, checklist) = source switch
+            {
+                Project project => (project.People, project.Checklist),
+                Note note => (note.People, note.Checklist),
+                _ => throw new InvalidOperationException("Nieobsługiwane źródło przypisania osoby.")
+            };
+            documentPeople.Clear();
+            documentPeople.AddRange(snapshot.DocumentPeople);
+            for (var index = 0; index < checklist.Count && index < snapshot.TaskPeople.Count; index++)
+            {
+                checklist[index].People = snapshot.TaskPeople[index].ToList();
+            }
+        }
     }
 
     private void PlaceNewNode(string id, double? x, double? y, string? preferNearParent)
@@ -1239,6 +1392,8 @@ public sealed class MainViewModel : ObservableObject
 
     public IReadOnlyList<Project> LoadTrashedProjects() => Store.LoadTrashedProjects();
 
+    public IReadOnlyList<Person> LoadTrashedPeople() => Store.LoadTrashedPeople();
+
     public void RestoreProjectFromTrash(Project project)
     {
         Store.RestoreProjectFromTrash(project);
@@ -1251,6 +1406,13 @@ public sealed class MainViewModel : ObservableObject
         }
 
         StatusText = "Projekt przywrócono z kosza";
+    }
+
+    public void RestorePersonFromTrash(Person person)
+    {
+        Store.RestorePersonFromTrash(person);
+        Reload();
+        StatusText = "Osobę przywrócono z kosza; wcześniejsze przypisania nie zostały odtworzone";
     }
 
     public void TogglePinSelected()

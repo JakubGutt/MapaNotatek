@@ -33,6 +33,7 @@ public partial class PeopleView : UserControl
 
     public event Action<Project>? ProjectOpenRequested;
     public event Action<Note>? NoteOpenRequested;
+    public event Action<Person>? DeletePersonRequested;
 
     public void Refresh()
     {
@@ -500,6 +501,14 @@ public partial class PeopleView : UserControl
         person.AvatarPath = string.Empty;
         ViewModel.ScheduleSavePerson(person);
         Refresh();
+    }
+
+    private void OnDeletePerson(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.People.FirstOrDefault(candidate => candidate.Id == _selectedPersonId) is { } person)
+        {
+            DeletePersonRequested?.Invoke(person);
+        }
     }
 
     private void OnRelatedItemDoubleTapped(object? sender, TappedEventArgs e)
