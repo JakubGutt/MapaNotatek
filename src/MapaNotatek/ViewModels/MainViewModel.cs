@@ -88,6 +88,7 @@ public sealed class MainViewModel : ObservableObject
     public event Action? GraphChanged;
     public event Action? PeopleChanged;
     public event Action? EditorChanged;
+    public event Action? EditorOpenRequested;
     public event Action? SelectionChanged;
     public event Action<string>? FocusNodeRequested;
 
@@ -480,6 +481,11 @@ public sealed class MainViewModel : ObservableObject
         TrackRecent(project.Id);
         RefreshRelated();
         EditorChanged?.Invoke();
+        if (openEditor)
+        {
+            EditorOpenRequested?.Invoke();
+        }
+
         SelectionChanged?.Invoke();
         GraphChanged?.Invoke();
     }
@@ -501,6 +507,11 @@ public sealed class MainViewModel : ObservableObject
         TrackRecent(note.Id);
         RefreshRelated();
         EditorChanged?.Invoke();
+        if (openEditor)
+        {
+            EditorOpenRequested?.Invoke();
+        }
+
         SelectionChanged?.Invoke();
         GraphChanged?.Invoke();
     }
@@ -1845,16 +1856,17 @@ public sealed class MainViewModel : ObservableObject
             VisibleNotes.Add(note);
         }
 
+        var visibleTasks = CollectOpenTasks(
+                Notes.Where(ShouldShowNoteInList),
+                Projects.Where(ShouldShowProjectInList))
+            .ToList();
         VisibleTasks.Clear();
-        foreach (var task in CollectOpenTasks(Notes.Where(ShouldShowNoteInList), Projects.Where(ShouldShowProjectInList)))
+        for (var index = 0; index < visibleTasks.Count; index++)
         {
+            var task = visibleTasks[index];
+            task.CanMoveUp = index > 0;
+            task.CanMoveDown = index < visibleTasks.Count - 1;
             VisibleTasks.Add(task);
-        }
-
-        for (var index = 0; index < VisibleTasks.Count; index++)
-        {
-            VisibleTasks[index].CanMoveUp = index > 0;
-            VisibleTasks[index].CanMoveDown = index < VisibleTasks.Count - 1;
         }
 
         RefreshPinnedAndRecent();

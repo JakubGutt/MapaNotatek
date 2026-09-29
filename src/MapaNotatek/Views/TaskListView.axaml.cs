@@ -29,6 +29,11 @@ public partial class TaskListView : UserControl
             OnTaskPointerReleased,
             RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
             handledEventsToo: true);
+        TasksList.AddHandler(
+            PointerCaptureLostEvent,
+            OnTaskPointerCaptureLost,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
+            handledEventsToo: true);
     }
 
     public MainViewModel? ViewModel { get; set; }
@@ -58,9 +63,8 @@ public partial class TaskListView : UserControl
 
     private void OnTaskCardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is not Border { DataContext: OpenTask task } card ||
-            !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed ||
-            IsTaskControl(e.Source as Visual))
+        if (sender is not Border { DataContext: OpenTask task } handle ||
+            !e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed)
         {
             return;
         }
@@ -70,12 +74,14 @@ public partial class TaskListView : UserControl
         _dropTarget = null;
         _dropAfter = false;
         _isReordering = false;
+        TasksList.SelectedItem = task;
+        e.Pointer.Capture(TasksList);
+        e.Handled = true;
     }
 
     private void OnTaskPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_dragStart is null || _dragCandidate is null ||
-            !e.GetCurrentPoint(TasksList).Properties.IsLeftButtonPressed)
+        if (_dragStart is null || _dragCandidate is null)
         {
             return;
         }
@@ -91,27 +97,32 @@ public partial class TaskListView : UserControl
         if (!_isReordering)
         {
             _isReordering = true;
-            e.Pointer.Capture(TasksList);
         }
 
-        var targetContainer = FindTaskContainerAt(position);
-        if (targetContainer?.DataContext is OpenTask target &&
-            !ReferenceEquals(_dragCandidate.Item, target.Item))
-        {
-            _dropTarget = target;
-            _dropAfter = e.GetPosition(targetContainer).Y > targetContainer.Bounds.Height / 2;
-            TasksList.SelectedItem = target;
-        }
-        else
-        {
-            _dropTarget = null;
-        }
+        UpdateDropTarget(position);
 
         e.Handled = true;
     }
 
+    private void OnTaskPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        ClearDragState();
+    }
+
     private void OnTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (_dragStart is { } start && _dragCandidate is not null)
+        {
+            var position = e.GetPosition(TasksList);
+            var dx = position.X - start.X;
+            var dy = position.Y - start.Y;
+            if ((dx * dx) + (dy * dy) >= 36)
+            {
+                _isReordering = true;
+                UpdateDropTarget(position);
+            }
+        }
+
         var movedTask = _dragCandidate;
         var targetTask = _dropTarget;
         var placeAfter = _dropAfter;
@@ -137,6 +148,26 @@ public partial class TaskListView : UserControl
         e.Handled = true;
     }
 
+    private void UpdateDropTarget(Point position)
+    {
+        var targetContainer = FindTaskContainerAt(position);
+        if (targetContainer?.DataContext is not OpenTask target ||
+            _dragCandidate is null ||
+            ReferenceEquals(_dragCandidate.Item, target.Item))
+        {
+            _dropTarget = null;
+            return;
+        }
+
+        _dropTarget = target;
+        var movedIndex = ViewModel?.VisibleTasks.IndexOf(_dragCandidate) ?? -1;
+        var targetIndex = ViewModel?.VisibleTasks.IndexOf(target) ?? -1;
+        _dropAfter = movedIndex >= 0 && targetIndex >= 0
+            ? targetIndex > movedIndex
+            : position.Y > targetContainer.Bounds.Center.Y;
+        TasksList.SelectedItem = target;
+    }
+
     private void ClearDragState()
     {
         _dragStart = null;
@@ -148,21 +179,18 @@ public partial class TaskListView : UserControl
 
     private ListBoxItem? FindTaskContainerAt(Point position)
     {
-        foreach (var item in TasksList.GetVisualDescendants().OfType<ListBoxItem>())
-        {
-            var topLeft = item.TranslatePoint(new Point(0, 0), TasksList);
-            if (topLeft is not { } point)
+        return TasksList.GetVisualDescendants()
+            .OfType<ListBoxItem>()
+            .Select(item => new
             {
-                continue;
-            }
-
-            if (position.Y >= point.Y && position.Y <= point.Y + item.Bounds.Height)
-            {
-                return item;
-            }
-        }
-
-        return null;
+                Item = item,
+                TopLeft = item.TranslatePoint(new Point(0, 0), TasksList)
+            })
+            .Where(candidate => candidate.TopLeft.HasValue)
+            .OrderBy(candidate => Math.Abs(
+                position.Y - (candidate.TopLeft!.Value.Y + candidate.Item.Bounds.Height / 2)))
+            .Select(candidate => candidate.Item)
+            .FirstOrDefault();
     }
 
     private void OnTaskMoveUp(object? sender, RoutedEventArgs e) => MoveTaskByOffset(sender, -1);
@@ -185,43 +213,6 @@ public partial class TaskListView : UserControl
             TasksList.SelectedItem = moved;
             TasksList.ScrollIntoView(moved);
         }
-    }
-
-    private static ListBoxItem? FindTaskContainer(Visual? source)
-    {
-        var current = source;
-        while (current is not null)
-        {
-            if (current is ListBoxItem item && item.DataContext is OpenTask)
-            {
-                return item;
-            }
-
-            current = current.GetVisualParent();
-        }
-
-        return null;
-    }
-
-    private static bool IsTaskControl(Visual? source)
-    {
-        var current = source;
-        while (current is not null)
-        {
-            if (current is Button or CheckBox)
-            {
-                return true;
-            }
-
-            if (current is ListBoxItem)
-            {
-                return false;
-            }
-
-            current = current.GetVisualParent();
-        }
-
-        return false;
     }
 
     private void OnTaskChecked(object? sender, RoutedEventArgs e)
@@ -270,7 +261,9 @@ public partial class TaskListView : UserControl
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (ViewModel is null || TasksList.SelectedItem is not OpenTask task)
+        if (e.Source is Button or CheckBox ||
+            ViewModel is null ||
+            TasksList.SelectedItem is not OpenTask task)
         {
             return;
         }

@@ -429,6 +429,7 @@ static void TaskPriorityDragIsWired()
     var tasks = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml"));
     var tasksCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
     var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
+    var shellCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
 
     True(tasks.Contains("Przeciągnij kafelek lub użyj strzałek", StringComparison.Ordinal));
     True(tasks.Contains("Cursor=\"SizeAll\"", StringComparison.Ordinal));
@@ -438,13 +439,20 @@ static void TaskPriorityDragIsWired()
     True(tasks.Contains("ReflectionBinding CanMoveUp", StringComparison.Ordinal));
     True(tasks.Contains("ReflectionBinding CanMoveDown", StringComparison.Ordinal));
     True(tasksCode.Contains("e.Pointer.Capture(TasksList)", StringComparison.Ordinal));
-    True(tasksCode.Contains("GetVisualParent()", StringComparison.Ordinal));
-    True(tasksCode.Contains("GetVisualDescendants().OfType<ListBoxItem>()", StringComparison.Ordinal));
+    True(tasksCode.Contains("PointerCaptureLostEvent", StringComparison.Ordinal));
+    True(tasksCode.Contains("GetVisualDescendants()", StringComparison.Ordinal));
+    True(tasksCode.Contains(".OfType<ListBoxItem>()", StringComparison.Ordinal));
     True(tasksCode.Contains("FindTaskContainerAt", StringComparison.Ordinal));
     True(tasksCode.Contains("ViewModel.MoveTask", StringComparison.Ordinal));
+    True(tasksCode.Contains("targetIndex > movedIndex", StringComparison.Ordinal));
     True(viewModel.Contains("public bool MoveTask", StringComparison.Ordinal));
     True(viewModel.Contains("public bool MoveTaskByOffset", StringComparison.Ordinal));
     True(viewModel.Contains("task.Item.Priority.HasValue", StringComparison.Ordinal));
+    True(tasks.Contains("ReflectionBinding DisplayText", StringComparison.Ordinal));
+    True(viewModel.Contains("public event Action? EditorOpenRequested", StringComparison.Ordinal));
+    True(shellCode.Contains("_vm.EditorOpenRequested += OnEditorOpenRequested", StringComparison.Ordinal));
+    True(shellCode.Contains("if (_editorPageActive && !_vm.IsEditorOpen)", StringComparison.Ordinal));
+    False(shellCode.Contains("if (_vm.IsEditorOpen)\n            {\n                ShowEditorPage();\n            }\n            else if (_editorPageActive)", StringComparison.Ordinal));
 }
 
 static void PeoplePanelIsWired()

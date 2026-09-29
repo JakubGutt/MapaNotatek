@@ -208,6 +208,7 @@ public partial class MainWindow : Window
             _vm.GraphChanged += OnGraphChanged;
             _vm.PeopleChanged += OnPeopleChanged;
             _vm.EditorChanged += OnEditorChanged;
+            _vm.EditorOpenRequested += OnEditorOpenRequested;
             _vm.FocusNodeRequested += id =>
             {
                 Dispatcher.UIThread.Post(() =>
@@ -302,17 +303,24 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             _editorControl.Refresh();
-            if (_vm.IsEditorOpen)
-            {
-                ShowEditorPage();
-            }
-            else if (_editorPageActive)
+            if (_editorPageActive && !_vm.IsEditorOpen)
             {
                 ShowCenter(CenterViewKind.Notes);
             }
 
             _notesControl.Bind();
             _tasksControl.Bind();
+        });
+    }
+
+    private void OnEditorOpenRequested()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_vm.IsEditorOpen)
+            {
+                ShowEditorPage();
+            }
         });
     }
 
