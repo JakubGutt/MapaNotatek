@@ -59,7 +59,12 @@ public static class FrontMatter
         TrimTrailingBlankLines(bodyLines);
         for (var lineIndex = 0; lineIndex < bodyLines.Count; lineIndex++)
         {
-            if (!TryReadChecklistLine(bodyLines[lineIndex], out var isDone, out var itemText, out var people))
+            if (!TryReadChecklistLine(
+                    bodyLines[lineIndex],
+                    out var isDone,
+                    out var itemText,
+                    out var people,
+                    out var priority))
             {
                 continue;
             }
@@ -69,6 +74,7 @@ public static class FrontMatter
                 IsDone = isDone,
                 Text = itemText,
                 People = people,
+                Priority = priority,
                 SourceLineIndex = lineIndex,
                 SourceLine = bodyLines[lineIndex]
             });
@@ -238,7 +244,7 @@ public static class FrontMatter
                 lines.Add(string.Empty);
             }
 
-            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People)}";
+            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority)}";
             lines.Add(newLine);
             var newIndex = lines.Count - 1;
             claimedLines.Add(newIndex);
@@ -293,7 +299,7 @@ public static class FrontMatter
         for (var index = 0; index < lines.Count; index++)
         {
             if (claimedLines.Contains(index) ||
-                !TryReadChecklistLine(lines[index], out _, out var existingText, out _) ||
+                !TryReadChecklistLine(lines[index], out _, out var existingText, out _, out _) ||
                 !string.Equals(existingText, text, StringComparison.Ordinal))
             {
                 continue;
@@ -310,20 +316,21 @@ public static class FrontMatter
         var match = ChecklistLine.Match(originalLine);
         if (!match.Success)
         {
-            return $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People)}";
+            return $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority)}";
         }
 
         return match.Groups["prefix"].Value +
                (item.IsDone ? "x" : " ") +
                match.Groups["suffix"].Value +
-               PersonTagService.AppendTaskMetadata(item.Text, item.People);
+               PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority);
     }
 
     private static bool TryReadChecklistLine(
         string line,
         out bool isDone,
         out string text,
-        out List<string> people)
+        out List<string> people,
+        out int? priority)
     {
         var match = ChecklistLine.Match(line);
         if (!match.Success)
@@ -331,12 +338,14 @@ public static class FrontMatter
             isDone = false;
             text = string.Empty;
             people = [];
+            priority = null;
             return false;
         }
 
         isDone = !string.Equals(match.Groups["state"].Value, " ", StringComparison.Ordinal);
         var rawText = match.Groups["text"].Value.TrimEnd();
         people = PersonTagService.ReadTaskPeople(rawText);
+        priority = PersonTagService.ReadTaskPriority(rawText);
         text = PersonTagService.StripTaskMetadata(rawText);
         return true;
     }

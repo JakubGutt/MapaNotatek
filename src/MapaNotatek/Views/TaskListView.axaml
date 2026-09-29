@@ -12,7 +12,7 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="4">
                     <TextBlock Text="Otwarte zadania" Classes="heading" />
-                    <TextBlock Text="Wszystkie niedokończone zadania z widocznych projektów i notatek."
+                    <TextBlock Text="Przeciągnij kafelek, aby ustawić najważniejsze zadania u góry."
                                Classes="subtitle"
                                TextWrapping="Wrap" />
                 </StackPanel>
@@ -36,7 +36,7 @@
                      KeyDown="OnKeyDown"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      AutomationProperties.Name="Lista otwartych zadań"
-                     AutomationProperties.HelpText="Użyj strzałek, aby wybrać zadanie. Spacja kończy zadanie, a Enter otwiera jego źródło.">
+                     AutomationProperties.HelpText="Przeciągaj zadania, aby zmieniać ich priorytet. Spacja kończy zadanie, a Enter otwiera jego źródło.">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="Padding" Value="0" />
@@ -70,8 +70,22 @@
                                 Padding="16,14"
                                 AutomationProperties.Name="{ReflectionBinding Text}"
                                 AutomationProperties.HelpText="Spacja kończy zadanie. Enter otwiera jego źródło.">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                <CheckBox IsChecked="{ReflectionBinding Item.IsDone, Mode=OneWay}"
+                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                                <Border Width="24"
+                                        MinHeight="32"
+                                        VerticalAlignment="Top"
+                                        CornerRadius="4"
+                                        Background="Transparent"
+                                        Cursor="SizeAll"
+                                        ToolTip.Tip="Przeciągnij, aby zmienić priorytet">
+                                    <TextBlock Text="⋮⋮"
+                                               FontSize="16"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Border>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{ReflectionBinding Item.IsDone, Mode=OneWay}"
                                           IsCheckedChanged="OnTaskChecked"
                                           MinWidth="32"
                                           MinHeight="32"
@@ -79,7 +93,7 @@
                                           Margin="0,1,0,0"
                                           ToolTip.Tip="Oznacz zadanie jako ukończone"
                                           AutomationProperties.Name="{ReflectionBinding Text, StringFormat='Ukończ zadanie: {0}'}" />
-                                <StackPanel Grid.Column="1" Spacing="6">
+                                <StackPanel Grid.Column="2" Spacing="6">
                                     <TextBlock Text="{ReflectionBinding Text}"
                                                FontSize="15"
                                                FontWeight="Medium"

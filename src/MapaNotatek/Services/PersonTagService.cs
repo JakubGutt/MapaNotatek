@@ -9,6 +9,10 @@ public static class PersonTagService
         @"\s*<!--\s*people:\s*(?<people>[^>]*)-->\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex TaskPriorityMetadata = new(
+        @"\s*<!--\s*priority:\s*(?<priority>-?\d+)\s*-->\s*",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static List<string> Parse(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -73,8 +77,11 @@ public static class PersonTagService
             .ToList();
     }
 
-    public static string StripTaskMetadata(string? text) =>
-        TaskMetadata.Replace(text ?? string.Empty, string.Empty).TrimEnd();
+    public static string StripTaskMetadata(string? text)
+    {
+        var withoutPeople = TaskMetadata.Replace(text ?? string.Empty, string.Empty);
+        return TaskPriorityMetadata.Replace(withoutPeople, string.Empty).TrimEnd();
+    }
 
     public static List<string> ReadTaskPeople(string? text)
     {
@@ -82,13 +89,26 @@ public static class PersonTagService
         return match.Success ? Parse(match.Groups["people"].Value) : [];
     }
 
-    public static string AppendTaskMetadata(string? text, IEnumerable<string>? people)
+    public static int? ReadTaskPriority(string? text)
+    {
+        var match = TaskPriorityMetadata.Match(text ?? string.Empty);
+        return match.Success && int.TryParse(match.Groups["priority"].Value, out var priority)
+            ? priority
+            : null;
+    }
+
+    public static string AppendTaskMetadata(
+        string? text,
+        IEnumerable<string>? people,
+        int? priority = null)
     {
         var clean = StripTaskMetadata(text);
         var normalized = Normalize(people);
-        return normalized.Count == 0
-            ? clean
-            : $"{clean} <!-- people: {string.Join(", ", normalized)} -->";
+        var priorityMetadata = priority.HasValue ? $" <!-- priority: {priority.Value} -->" : string.Empty;
+        var peopleMetadata = normalized.Count == 0
+            ? string.Empty
+            : $" <!-- people: {string.Join(", ", normalized)} -->";
+        return clean + priorityMetadata + peopleMetadata;
     }
 
     public static bool Contains(IEnumerable<string>? people, string slug) =>

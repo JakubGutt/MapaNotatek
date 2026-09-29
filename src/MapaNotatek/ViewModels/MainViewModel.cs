@@ -815,6 +815,52 @@ public sealed class MainViewModel : ObservableObject
         PeopleChanged?.Invoke();
     }
 
+    public bool MoveTask(OpenTask movedTask, OpenTask targetTask, bool placeAfter)
+    {
+        if (ReferenceEquals(movedTask.Item, targetTask.Item))
+        {
+            return false;
+        }
+
+        var ordered = CollectOpenTasks(Notes, Projects).ToList();
+        var originalOrder = ordered.Select(task => task.Item).ToList();
+        var movedIndex = ordered.FindIndex(task => ReferenceEquals(task.Item, movedTask.Item));
+        if (movedIndex < 0)
+        {
+            return false;
+        }
+
+        var moved = ordered[movedIndex];
+        ordered.RemoveAt(movedIndex);
+        var targetIndex = ordered.FindIndex(task => ReferenceEquals(task.Item, targetTask.Item));
+        if (targetIndex < 0)
+        {
+            return false;
+        }
+
+        ordered.Insert(targetIndex + (placeAfter ? 1 : 0), moved);
+        if (ordered.Select(task => task.Item).SequenceEqual(originalOrder))
+        {
+            return false;
+        }
+
+        var previousPriorities = ordered.ToDictionary(task => task.Item, task => task.Item.Priority);
+        var newPriorities = ordered
+            .Select((task, index) => (task.Item, Priority: (int?)(index * 100)))
+            .ToDictionary(pair => pair.Item, pair => pair.Priority);
+
+        if (!ApplyTaskPriorities(newPriorities))
+        {
+            return false;
+        }
+
+        PushUndo(
+            () => ApplyTaskPriorities(previousPriorities),
+            () => ApplyTaskPriorities(newPriorities));
+        StatusText = "Zmieniono priorytet zadania";
+        return true;
+    }
+
     public void Undo()
     {
         if (_undo.Count == 0)
@@ -1094,7 +1140,8 @@ public sealed class MainViewModel : ObservableObject
                 {
                     Text = item.Text,
                     IsDone = item.IsDone,
-                    People = item.People.ToList()
+                    People = item.People.ToList(),
+                    Priority = item.Priority
                 })
                 .ToList();
             Store.SaveNote(copy);
@@ -1116,7 +1163,8 @@ public sealed class MainViewModel : ObservableObject
                 {
                     Text = item.Text,
                     IsDone = item.IsDone,
-                    People = item.People.ToList()
+                    People = item.People.ToList(),
+                    Priority = item.Priority
                 })
                 .ToList();
             Store.SaveProject(copy);
@@ -1550,6 +1598,59 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    private bool ApplyTaskPriorities(IReadOnlyDictionary<ChecklistItem, int?> priorities)
+    {
+        var affectedItems = priorities
+            .Where(pair => pair.Key.Priority != pair.Value)
+            .Select(pair => pair.Key)
+            .ToHashSet();
+        if (affectedItems.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (var (item, priority) in priorities)
+        {
+            item.Priority = priority;
+        }
+
+        var saved = true;
+        foreach (var project in Projects.Where(project => project.Checklist.Any(affectedItems.Contains)))
+        {
+            try
+            {
+                SaveProjectWithHistory(project);
+            }
+            catch (Exception ex)
+            {
+                _pendingSaveProjects[project.Id] = project;
+                RecordSaveFailure(ex);
+                saved = false;
+            }
+        }
+
+        foreach (var note in Notes.Where(note => note.Checklist.Any(affectedItems.Contains)))
+        {
+            try
+            {
+                SaveNoteWithHistory(note);
+            }
+            catch (Exception ex)
+            {
+                _pendingSaveNotes[note.Id] = note;
+                RecordSaveFailure(ex);
+                saved = false;
+            }
+        }
+
+        Raise(nameof(HasPendingSaves));
+        Raise(nameof(PendingSaveCount));
+        RefreshVisible();
+        RefreshRelated();
+        EditorChanged?.Invoke();
+        return saved;
+    }
+
     private void RefreshVisible()
     {
         VisibleProjects.Clear();
@@ -1638,7 +1739,10 @@ public sealed class MainViewModel : ObservableObject
         foreach (var note in Notes.Where(n => LayoutService.NoteLinksTo(n, project)))
         {
             RelatedNotes.Add(note);
-            foreach (var item in note.Checklist.Where(c => !c.IsDone))
+            foreach (var item in note.Checklist
+                         .Where(c => !c.IsDone)
+                         .OrderBy(c => c.Priority.HasValue ? 0 : 1)
+                         .ThenBy(c => c.Priority))
             {
                 ProjectNoteTasks.Add(new OpenTask
                 {
@@ -1724,18 +1828,19 @@ public sealed class MainViewModel : ObservableObject
 
     private static IEnumerable<OpenTask> CollectOpenTasks(IEnumerable<Note> notes, IEnumerable<Project> projects)
     {
+        var tasks = new List<OpenTask>();
         foreach (var project in projects)
         {
             foreach (var item in project.Checklist.Where(c => !c.IsDone))
             {
-                yield return new OpenTask
+                tasks.Add(new OpenTask
                 {
                     Text = item.Text,
                     SourceId = project.Id,
                     SourceTitle = project.Name,
                     IsProject = true,
                     Item = item
-                };
+                });
             }
         }
 
@@ -1743,16 +1848,20 @@ public sealed class MainViewModel : ObservableObject
         {
             foreach (var item in note.Checklist.Where(c => !c.IsDone))
             {
-                yield return new OpenTask
+                tasks.Add(new OpenTask
                 {
                     Text = item.Text,
                     SourceId = note.Id,
                     SourceTitle = note.Title,
                     IsProject = false,
                     Item = item
-                };
+                });
             }
         }
+
+        return tasks
+            .OrderBy(task => task.Item.Priority.HasValue ? 0 : 1)
+            .ThenBy(task => task.Item.Priority);
     }
 
     private void PushUndo(Action undo, Action redo)

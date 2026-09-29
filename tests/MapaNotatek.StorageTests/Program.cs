@@ -14,6 +14,7 @@ var tests = new (string Name, Action Run)[]
     ("przypisania osób są osobne od tagów", PersonAssignmentsRoundTrip),
     ("nazwa osoby rozwiązuje się do stabilnego identyfikatora", PersonNameResolvesToStableSlug),
     ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
+    ("priorytet zadań przechodzi round-trip", TaskPriorityRoundTrip),
     ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
     ("ponowny zapis tworzy kopię awaryjną", AtomicSaveCreatesBackup),
     ("nieudana zmiana nazwy zachowuje stary plik", FailedRenamePreservesOriginal),
@@ -59,6 +60,7 @@ var tests = new (string Name, Action Run)[]
     ("graf ma czytelne sterowanie i mapuje wikilinki", GraphWorkspaceIsDiscoverable),
     ("graf i drzewo rozróżniają typy architektury", ArchitectureTypesAreWired),
     ("lewe drzewo pokazuje notatki w kontekście projektów", NavigationTreeIncludesNotes),
+    ("kafelki zadań obsługują ręczne ustawianie priorytetu", TaskPriorityDragIsWired),
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
@@ -416,6 +418,21 @@ static void NavigationTreeIncludesNotes()
     True(node.Contains("public Note? Note", StringComparison.Ordinal));
 }
 
+static void TaskPriorityDragIsWired()
+{
+    var root = FindRepositoryRoot();
+    var tasks = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml"));
+    var tasksCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
+    var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
+
+    True(tasks.Contains("Przeciągnij kafelek", StringComparison.Ordinal));
+    True(tasks.Contains("Cursor=\"SizeAll\"", StringComparison.Ordinal));
+    True(tasksCode.Contains("DragDrop.DoDragDropAsync", StringComparison.Ordinal));
+    True(tasksCode.Contains("ViewModel.MoveTask", StringComparison.Ordinal));
+    True(viewModel.Contains("public bool MoveTask", StringComparison.Ordinal));
+    True(viewModel.Contains("task.Item.Priority.HasValue", StringComparison.Ordinal));
+}
+
 static void PeoplePanelIsWired()
 {
     var root = FindRepositoryRoot();
@@ -638,6 +655,25 @@ static void TaskPeopleRoundTrip()
     var blocks = VisualDocumentService.Parse(FrontMatter.Parse(rewritten).Body);
     Equal("ewa-lis", blocks.Single(block => block.Kind == DocumentBlockKind.Checklist).People.Single());
     True(VisualDocumentService.Serialize(blocks).Contains("<!-- people: ewa-lis -->", StringComparison.Ordinal));
+}
+
+static void TaskPriorityRoundTrip()
+{
+    const string source = "# Plan\n\n- [ ] Pilne <!-- priority: 100 --> <!-- people: anna -->";
+    var parsed = FrontMatter.Parse(source);
+    var item = parsed.Checklist.Single();
+    Equal("Pilne", item.Text);
+    Equal(100, item.Priority);
+    Equal("anna", item.People.Single());
+
+    item.Priority = 250;
+    var rewritten = FrontMatter.WriteNote(NoteFrom(parsed));
+    True(rewritten.Contains("<!-- priority: 250 --> <!-- people: anna -->", StringComparison.Ordinal));
+
+    var block = VisualDocumentService.Parse(FrontMatter.Parse(rewritten).Body).Single();
+    Equal(250, block.TaskPriority);
+    Equal("Pilne", block.Text);
+    True(VisualDocumentService.Serialize([block]).Contains("<!-- priority: 250 -->", StringComparison.Ordinal));
 }
 
 static void PersonStoreRoundTrip()

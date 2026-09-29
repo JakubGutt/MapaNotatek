@@ -122,7 +122,8 @@ public static class VisualDocumentService
                     Kind = DocumentBlockKind.Checklist,
                     IsChecked = !string.Equals(checklist.Groups["state"].Value, " ", StringComparison.Ordinal),
                     Text = PersonTagService.StripTaskMetadata(rawText),
-                    People = PersonTagService.ReadTaskPeople(rawText)
+                    People = PersonTagService.ReadTaskPeople(rawText),
+                    TaskPriority = PersonTagService.ReadTaskPriority(rawText)
                 });
                 index++;
                 continue;
@@ -293,7 +294,7 @@ public static class VisualDocumentService
         DocumentBlockKind.Bullet => "- " + block.Text.TrimEnd(),
         DocumentBlockKind.Numbered => "1. " + block.Text.TrimEnd(),
         DocumentBlockKind.Checklist =>
-            $"- [{(block.IsChecked ? "x" : " ")}] {PersonTagService.AppendTaskMetadata(block.Text.TrimEnd(), block.People)}",
+            $"- [{(block.IsChecked ? "x" : " ")}] {PersonTagService.AppendTaskMetadata(block.Text.TrimEnd(), block.People, block.TaskPriority)}",
         DocumentBlockKind.Quote => RenderPrefixedLines(block.Text, "> "),
         DocumentBlockKind.Code => $"```{block.Language.Trim()}\n{block.Text.TrimEnd()}\n```",
         DocumentBlockKind.Rule => "---",
