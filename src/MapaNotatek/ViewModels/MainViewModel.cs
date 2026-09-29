@@ -72,7 +72,7 @@ public sealed class MainViewModel : ObservableObject
     public List<Note> Notes { get; } = [];
     public List<Person> People { get; } = [];
     public ObservableCollection<Project> VisibleProjects { get; } = [];
-    public ObservableCollection<ProjectTreeNode> ProjectTree { get; } = [];
+    public ObservableCollection<NavigationTreeNode> NavigationTree { get; } = [];
     public ObservableCollection<Note> VisibleNotes { get; } = [];
     public ObservableCollection<OpenTask> VisibleTasks { get; } = [];
     public ObservableCollection<Note> RelatedNotes { get; } = [];
@@ -1558,7 +1558,7 @@ public sealed class MainViewModel : ObservableObject
             VisibleProjects.Add(project);
         }
 
-        RebuildProjectTree();
+        RebuildNavigationTree();
 
         VisibleNotes.Clear();
         foreach (var note in Notes.Where(ShouldShowNoteInList))
@@ -1575,17 +1575,26 @@ public sealed class MainViewModel : ObservableObject
         RefreshPinnedAndRecent();
     }
 
-    private void RebuildProjectTree()
+    private void RebuildNavigationTree()
     {
-        ProjectTree.Clear();
-        var visible = Projects.Where(ShouldShowProjectInList).ToList();
-        var byParent = visible.ToLookup(p => p.ParentId ?? string.Empty, StringComparer.OrdinalIgnoreCase);
-        ProjectTreeNode Build(Project project)
+        NavigationTree.Clear();
+        var visibleProjects = Projects.Where(ShouldShowProjectInList).ToList();
+        var visibleNotes = Notes.Where(ShouldShowNoteInList)
+            .OrderBy(note => note.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        var byParent = visibleProjects.ToLookup(p => p.ParentId ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+        NavigationTreeNode Build(Project project)
         {
-            var node = new ProjectTreeNode { Project = project };
+            var node = new NavigationTreeNode { Project = project };
             foreach (var child in SortTreeChildren(byParent[project.Id]))
             {
                 node.Children.Add(Build(child));
+            }
+
+            foreach (var note in visibleNotes.Where(note => LayoutService.NoteLinksTo(note, project)))
+            {
+                node.Children.Add(new NavigationTreeNode { Note = note });
             }
 
             return node;
@@ -1593,7 +1602,21 @@ public sealed class MainViewModel : ObservableObject
 
         foreach (var root in SortTreeChildren(byParent[string.Empty]))
         {
-            ProjectTree.Add(Build(root));
+            NavigationTree.Add(Build(root));
+        }
+
+        var unassignedNotes = visibleNotes.Where(note =>
+                Projects.All(project => !LayoutService.NoteLinksTo(note, project)))
+            .ToList();
+        if (unassignedNotes.Count > 0)
+        {
+            var unassignedGroup = new NavigationTreeNode { GroupTitle = "Notatki bez projektu" };
+            foreach (var note in unassignedNotes)
+            {
+                unassignedGroup.Children.Add(new NavigationTreeNode { Note = note });
+            }
+
+            NavigationTree.Add(unassignedGroup);
         }
     }
 

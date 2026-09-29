@@ -22,6 +22,7 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - kopiowanie bezpiecznego rich textu do schowka, gotowego do wklejenia do Confluence lub innego edytora;
 - model architektury `system → produkt → podsystem → komponent`, uzupełniony o elastyczne projekty ogólne i foldery;
 - reguły hierarchii pilnujące sensownych relacji oraz jedno zwarte menu tworzenia w lewym drzewie;
+- wspólne drzewo nawigacji: notatki są widoczne pod powiązanymi projektami, a luźne dokumenty w gałęzi „Notatki bez projektu”;
 - panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; przypisania wybiera się z rejestru osób, bez możliwości zapisania błędnego tagu;
 - interaktywny graf architektury, projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
 - systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;

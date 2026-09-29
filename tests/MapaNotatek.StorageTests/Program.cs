@@ -58,6 +58,7 @@ var tests = new (string Name, Action Run)[]
     ("enter kontynuuje listy w źródle Markdown", EnterContinuesMarkdownLists),
     ("graf ma czytelne sterowanie i mapuje wikilinki", GraphWorkspaceIsDiscoverable),
     ("graf i drzewo rozróżniają typy architektury", ArchitectureTypesAreWired),
+    ("lewe drzewo pokazuje notatki w kontekście projektów", NavigationTreeIncludesNotes),
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
@@ -398,6 +399,21 @@ static void ArchitectureTypesAreWired()
     True(graph.Contains("Border.graph-product", StringComparison.Ordinal));
     True(graph.Contains("Border.graph-subsystem", StringComparison.Ordinal));
     True(graph.Contains("Border.graph-component", StringComparison.Ordinal));
+}
+
+static void NavigationTreeIncludesNotes()
+{
+    var root = FindRepositoryRoot();
+    var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var shellCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
+    var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
+    var node = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Models", "NavigationTreeNode.cs"));
+
+    True(shell.Contains("x:Name=\"LibraryTree\"", StringComparison.Ordinal));
+    True(shellCode.Contains("node.Note is", StringComparison.Ordinal));
+    True(viewModel.Contains("new NavigationTreeNode { Note = note }", StringComparison.Ordinal));
+    True(viewModel.Contains("GroupTitle = \"Notatki bez projektu\"", StringComparison.Ordinal));
+    True(node.Contains("public Note? Note", StringComparison.Ordinal));
 }
 
 static void PeoplePanelIsWired()

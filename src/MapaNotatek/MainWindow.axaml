@@ -199,10 +199,10 @@
                                 </Button.Flyout>
                             </Button>
                         </Grid>
-                        <TreeView x:Name="ProjectsTree"
+                        <TreeView x:Name="LibraryTree"
                                   Grid.Row="1"
-                                  DoubleTapped="OnProjectTreeDoubleTapped"
-                                  SelectionChanged="OnProjectTreeSelectionChanged">
+                                  DoubleTapped="OnLibraryTreeDoubleTapped"
+                                  SelectionChanged="OnLibraryTreeSelectionChanged">
                             <TreeView.ItemTemplate>
                                 <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
                                     <Grid ColumnDefinitions="28,*" ColumnSpacing="7" ToolTip.Tip="{ReflectionBinding TypeLabel}">

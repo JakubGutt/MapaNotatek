@@ -169,7 +169,7 @@ public partial class MainWindow : Window
             _tasksControl.ViewModel = _vm;
             _peopleControl.ViewModel = _vm;
             _editorControl.ViewModel = _vm;
-            ProjectsTree.ItemsSource = _vm.ProjectTree;
+            LibraryTree.ItemsSource = _vm.NavigationTree;
             PinnedList.ItemsSource = _vm.PinnedItems;
             RecentList.ItemsSource = _vm.RecentItems;
             AttachTreeContextMenu();
@@ -286,8 +286,8 @@ public partial class MainWindow : Window
             {
                 _peopleControl.Refresh();
             }
-            ProjectsTree.ItemsSource = null;
-            ProjectsTree.ItemsSource = _vm.ProjectTree;
+            LibraryTree.ItemsSource = null;
+            LibraryTree.ItemsSource = _vm.NavigationTree;
             PinnedList.ItemsSource = null;
             PinnedList.ItemsSource = _vm.PinnedItems;
             RecentList.ItemsSource = null;
@@ -528,24 +528,42 @@ public partial class MainWindow : Window
         // unused
     }
 
-    private void OnProjectTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void OnLibraryTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (ProjectsTree.SelectedItem is not ProjectTreeNode node)
+        if (LibraryTree.SelectedItem is not NavigationTreeNode node)
         {
             return;
         }
 
-        _vm.SelectGraphNode(node.Project.Id, isProject: true);
+        if (node.IsGroup)
+        {
+            return;
+        }
+
+        _vm.SelectGraphNode(node.ItemId, node.IsProject);
         ShowCenter(CenterViewKind.Graph);
         _graphControl.Refresh();
-        _graphControl.CenterOnNode(node.Project.Id);
+        _graphControl.CenterOnNode(node.ItemId);
     }
 
-    private void OnProjectTreeDoubleTapped(object? sender, TappedEventArgs e)
+    private void OnLibraryTreeDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (ProjectsTree.SelectedItem is ProjectTreeNode node)
+        if (LibraryTree.SelectedItem is not NavigationTreeNode node)
         {
-            _vm.SelectProject(node.Project, openEditor: true, focusGraph: true, filterToProject: true);
+            return;
+        }
+
+        if (node.Project is { } project)
+        {
+            _vm.SelectProject(project, openEditor: true, focusGraph: true, filterToProject: true);
+        }
+        else if (node.Note is { } note)
+        {
+            _vm.SelectNote(note, openEditor: true, focusGraph: true);
+        }
+
+        if (!node.IsGroup)
+        {
             ShowEditorPage();
         }
     }
@@ -634,12 +652,37 @@ public partial class MainWindow : Window
         menu.Opening += (_, _) =>
         {
             menu.Items.Clear();
-            if (ProjectsTree.SelectedItem is not ProjectTreeNode node)
+            if (LibraryTree.SelectedItem is not NavigationTreeNode node)
             {
                 return;
             }
 
-            var p = node.Project;
+            if (node.Note is { } note)
+            {
+                menu.Items.Add(MenuAction("Otwórz", () =>
+                {
+                    _vm.SelectNote(note, openEditor: true, focusGraph: true);
+                    ShowEditorPage();
+                }));
+                menu.Items.Add(MenuAction(_vm.IsPinned(note.Id) ? "Odepnij" : "Przypnij", () =>
+                {
+                    _vm.SelectNote(note, _vm.IsEditorOpen, focusGraph: true);
+                    _vm.TogglePinSelected();
+                }));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(MenuAction("Przenieś notatkę do kosza", () =>
+                {
+                    _vm.SelectNote(note, openEditor: false, focusGraph: true);
+                    _vm.TrashSelectedNote();
+                }));
+                return;
+            }
+
+            if (node.Project is not { } p)
+            {
+                return;
+            }
+
             menu.Items.Add(MenuAction("Otwórz", () => _vm.SelectProject(p, true, true, true)));
             menu.Items.Add(MenuAction("Nowa notatka", () =>
             {
@@ -667,21 +710,21 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuAction($"Usuń: {p.ItemType.Label().ToLowerInvariant()}…",
                 () => _ = ConfirmDeleteProjectAsync(p)));
         };
-        ProjectsTree.ContextMenu = menu;
+        LibraryTree.ContextMenu = menu;
     }
 
     private Point? _treeDragStart;
-    private ProjectTreeNode? _treeDragNode;
+    private NavigationTreeNode? _treeDragNode;
     private PointerPressedEventArgs? _treeDragPress;
 
     private void AttachTreeDragDrop()
     {
-        DragDrop.SetAllowDrop(ProjectsTree, true);
-        DragDrop.AddDragOverHandler(ProjectsTree, OnTreeDragOver);
-        DragDrop.AddDropHandler(ProjectsTree, OnTreeDrop);
-        ProjectsTree.AddHandler(PointerPressedEvent, OnTreePointerPressed, RoutingStrategies.Tunnel);
-        ProjectsTree.AddHandler(PointerMovedEvent, OnTreePointerMoved, RoutingStrategies.Tunnel);
-        ProjectsTree.AddHandler(PointerReleasedEvent, (_, _) =>
+        DragDrop.SetAllowDrop(LibraryTree, true);
+        DragDrop.AddDragOverHandler(LibraryTree, OnTreeDragOver);
+        DragDrop.AddDropHandler(LibraryTree, OnTreeDrop);
+        LibraryTree.AddHandler(PointerPressedEvent, OnTreePointerPressed, RoutingStrategies.Tunnel);
+        LibraryTree.AddHandler(PointerMovedEvent, OnTreePointerMoved, RoutingStrategies.Tunnel);
+        LibraryTree.AddHandler(PointerReleasedEvent, (_, _) =>
         {
             _treeDragStart = null;
             _treeDragNode = null;
@@ -691,12 +734,12 @@ public partial class MainWindow : Window
 
     private void OnTreePointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (!e.GetCurrentPoint(ProjectsTree).Properties.IsLeftButtonPressed)
+        if (!e.GetCurrentPoint(LibraryTree).Properties.IsLeftButtonPressed)
         {
             return;
         }
 
-        _treeDragStart = e.GetPosition(ProjectsTree);
+        _treeDragStart = e.GetPosition(LibraryTree);
         _treeDragNode = FindTreeNodeAt(e.Source as Control);
         _treeDragPress = e;
     }
@@ -704,12 +747,12 @@ public partial class MainWindow : Window
     private async void OnTreePointerMoved(object? sender, PointerEventArgs e)
     {
         if (_treeDragStart is null || _treeDragNode is null || _treeDragPress is null ||
-            !e.GetCurrentPoint(ProjectsTree).Properties.IsLeftButtonPressed)
+            !e.GetCurrentPoint(LibraryTree).Properties.IsLeftButtonPressed)
         {
             return;
         }
 
-        var pos = e.GetPosition(ProjectsTree);
+        var pos = e.GetPosition(LibraryTree);
         var dx = pos.X - _treeDragStart.Value.X;
         var dy = pos.Y - _treeDragStart.Value.Y;
         if ((dx * dx) + (dy * dy) < 64)
@@ -723,7 +766,17 @@ public partial class MainWindow : Window
         _treeDragNode = null;
         _treeDragPress = null;
         var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText("project:" + node.Project.Id));
+        var payload = node.Project is { } project
+            ? "project:" + project.Id
+            : node.Note is { } note
+                ? "note:" + note.Id
+                : null;
+        if (payload is null)
+        {
+            return;
+        }
+
+        data.Add(DataTransferItem.CreateText(payload));
         await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Move);
     }
 
@@ -774,12 +827,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private static ProjectTreeNode? FindTreeNodeAt(Control? source)
+    private static NavigationTreeNode? FindTreeNodeAt(Control? source)
     {
         var current = source;
         while (current is not null)
         {
-            if (current.DataContext is ProjectTreeNode node)
+            if (current.DataContext is NavigationTreeNode node)
             {
                 return node;
             }
@@ -836,7 +889,7 @@ public partial class MainWindow : Window
     private async void OnDeleteProject(object? sender, RoutedEventArgs e)
     {
         var project = _vm.SelectedProject ??
-                      (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project;
+                      (LibraryTree.SelectedItem as NavigationTreeNode)?.Project;
         if (project is null && _vm.SelectedGraphIsProject && _vm.SelectedGraphId is not null)
         {
             project = _vm.Projects.FirstOrDefault(p => p.Id == _vm.SelectedGraphId);
@@ -1005,7 +1058,7 @@ public partial class MainWindow : Window
         {
             var center = _graphControl.GetViewportCenterInCanvas();
             var parentId = explicitParentId ?? _vm.FocusedProject()?.Id ??
-                           (ProjectsTree.SelectedItem as ProjectTreeNode)?.Project.Id;
+                           (LibraryTree.SelectedItem as NavigationTreeNode)?.Project?.Id;
             _vm.NewProject(itemType, center.X, center.Y, parentId);
             ShowEditorPage();
             _editorControl.Refresh();
@@ -1724,7 +1777,7 @@ public partial class MainWindow : Window
             if (ReferenceEquals(focused, _graphControl) ||
                 ReferenceEquals(focused, _notesControl) ||
                 ReferenceEquals(focused, _tasksControl) ||
-                ReferenceEquals(focused, ProjectsTree))
+                ReferenceEquals(focused, LibraryTree))
             {
                 return true;
             }

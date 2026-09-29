@@ -61,6 +61,7 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-PR-07 — gotowe:** dozwolony model relacji to system → produkt → podsystem/komponent → komponent, a foldery i projekty ogólne są elastycznymi kontenerami.
 - **FR-PR-08 — gotowe:** graf i drzewo używają wspólnego koloru i oznaczenia dla każdego typu architektury.
 - **FR-PR-09 — gotowe:** typ elementu można wybrać z jednego menu tworzenia w lewym drzewie i z menu kontekstowego rodzica.
+- **FR-PR-10 — gotowe:** lewe drzewo pokazuje notatki pod wszystkimi powiązanymi projektami, a nieprzypisane dokumenty grupuje osobno; notatkę można z drzewa otworzyć lub przeciągnąć na projekt.
 
 ### FR-EX — eksport i współpraca bez integracji sieciowej
 
