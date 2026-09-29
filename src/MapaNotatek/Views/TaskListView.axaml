@@ -68,6 +68,7 @@
                         <Border Classes="task-card"
                                 CornerRadius="{DynamicResource CornerRadiusMedium}"
                                 Padding="16,14"
+                                PointerPressed="OnTaskCardPointerPressed"
                                 AutomationProperties.Name="{ReflectionBinding Text}"
                                 AutomationProperties.HelpText="Spacja kończy zadanie. Enter otwiera jego źródło.">
                             <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">

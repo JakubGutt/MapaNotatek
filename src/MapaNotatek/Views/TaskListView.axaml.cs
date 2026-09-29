@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using MapaNotatek.Models;
 using MapaNotatek.ViewModels;
 
@@ -18,11 +19,6 @@ public partial class TaskListView : UserControl
     public TaskListView()
     {
         InitializeComponent();
-        TasksList.AddHandler(
-            PointerPressedEvent,
-            OnTaskPointerPressed,
-            RoutingStrategies.Tunnel,
-            handledEventsToo: true);
         TasksList.AddHandler(
             PointerMovedEvent,
             OnTaskPointerMoved,
@@ -60,15 +56,11 @@ public partial class TaskListView : UserControl
         TasksList.IsVisible = count > 0;
     }
 
-    private void OnTaskPointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnTaskCardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (!e.GetCurrentPoint(TasksList).Properties.IsLeftButtonPressed || IsTaskControl(e.Source as Control))
-        {
-            return;
-        }
-
-        var container = FindTaskContainer(e.Source as Control);
-        if (container?.DataContext is not OpenTask task)
+        if (sender is not Border { DataContext: OpenTask task } card ||
+            !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed ||
+            IsTaskControl(e.Source as Visual))
         {
             return;
         }
@@ -156,10 +148,10 @@ public partial class TaskListView : UserControl
 
     private ListBoxItem? FindTaskContainerAt(Point position)
     {
-        return FindTaskContainer(TasksList.InputHitTest(position) as Control);
+        return FindTaskContainer(TasksList.InputHitTest(position) as Visual);
     }
 
-    private static ListBoxItem? FindTaskContainer(Control? source)
+    private static ListBoxItem? FindTaskContainer(Visual? source)
     {
         var current = source;
         while (current is not null)
@@ -169,13 +161,13 @@ public partial class TaskListView : UserControl
                 return item;
             }
 
-            current = current.Parent as Control;
+            current = current.GetVisualParent();
         }
 
         return null;
     }
 
-    private static bool IsTaskControl(Control? source)
+    private static bool IsTaskControl(Visual? source)
     {
         var current = source;
         while (current is not null)
@@ -190,7 +182,7 @@ public partial class TaskListView : UserControl
                 return false;
             }
 
-            current = current.Parent as Control;
+            current = current.GetVisualParent();
         }
 
         return false;

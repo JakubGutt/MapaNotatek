@@ -427,7 +427,9 @@ static void TaskPriorityDragIsWired()
 
     True(tasks.Contains("Przeciągnij kafelek", StringComparison.Ordinal));
     True(tasks.Contains("Cursor=\"SizeAll\"", StringComparison.Ordinal));
+    True(tasks.Contains("PointerPressed=\"OnTaskCardPointerPressed\"", StringComparison.Ordinal));
     True(tasksCode.Contains("e.Pointer.Capture(TasksList)", StringComparison.Ordinal));
+    True(tasksCode.Contains("GetVisualParent()", StringComparison.Ordinal));
     True(tasksCode.Contains("FindTaskContainerAt", StringComparison.Ordinal));
     True(tasksCode.Contains("ViewModel.MoveTask", StringComparison.Ordinal));
     True(viewModel.Contains("public bool MoveTask", StringComparison.Ordinal));
