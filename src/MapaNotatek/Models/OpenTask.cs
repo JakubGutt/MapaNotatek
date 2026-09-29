@@ -8,4 +8,6 @@ public sealed class OpenTask
     public bool IsProject { get; set; }
     public ChecklistItem Item { get; set; } = new();
     public bool HasPeople => Item.People.Count > 0;
+    public bool CanMoveUp { get; set; }
+    public bool CanMoveDown { get; set; }
 }

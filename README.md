@@ -25,7 +25,7 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - wspólne drzewo nawigacji: notatki są widoczne pod powiązanymi projektami, a luźne dokumenty w gałęzi „Notatki bez projektu”;
 - panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; przypisania wybiera się z rejestru osób, bez możliwości zapisania błędnego tagu;
 - usuwanie profili osób do kosza wraz z wyczyszczeniem ich przypisań z projektów, notatek i zadań;
-- ręczne ustawianie priorytetu zadań przez przeciąganie kafelków; kolejność jest zapisywana w Markdown i zachowywana po ponownym uruchomieniu;
+- ręczne ustawianie priorytetu zadań przez przeciąganie kafelków lub przyciski góra/dół; kolejność jest zapisywana w Markdown i zachowywana po ponownym uruchomieniu;
 - interaktywny graf architektury, projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
 - systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;
 - Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;

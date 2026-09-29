@@ -430,14 +430,20 @@ static void TaskPriorityDragIsWired()
     var tasksCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
     var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
 
-    True(tasks.Contains("Przeciągnij kafelek", StringComparison.Ordinal));
+    True(tasks.Contains("Przeciągnij kafelek lub użyj strzałek", StringComparison.Ordinal));
     True(tasks.Contains("Cursor=\"SizeAll\"", StringComparison.Ordinal));
     True(tasks.Contains("PointerPressed=\"OnTaskCardPointerPressed\"", StringComparison.Ordinal));
+    True(tasks.Contains("Click=\"OnTaskMoveUp\"", StringComparison.Ordinal));
+    True(tasks.Contains("Click=\"OnTaskMoveDown\"", StringComparison.Ordinal));
+    True(tasks.Contains("ReflectionBinding CanMoveUp", StringComparison.Ordinal));
+    True(tasks.Contains("ReflectionBinding CanMoveDown", StringComparison.Ordinal));
     True(tasksCode.Contains("e.Pointer.Capture(TasksList)", StringComparison.Ordinal));
     True(tasksCode.Contains("GetVisualParent()", StringComparison.Ordinal));
+    True(tasksCode.Contains("GetVisualDescendants().OfType<ListBoxItem>()", StringComparison.Ordinal));
     True(tasksCode.Contains("FindTaskContainerAt", StringComparison.Ordinal));
     True(tasksCode.Contains("ViewModel.MoveTask", StringComparison.Ordinal));
     True(viewModel.Contains("public bool MoveTask", StringComparison.Ordinal));
+    True(viewModel.Contains("public bool MoveTaskByOffset", StringComparison.Ordinal));
     True(viewModel.Contains("task.Item.Priority.HasValue", StringComparison.Ordinal));
 }
 
