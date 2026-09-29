@@ -12,7 +12,7 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="4">
                     <TextBlock Text="Otwarte zadania" Classes="heading" />
-                    <TextBlock Text="Przeciągnij kafelek lub użyj strzałek, aby ustawić najważniejsze zadania u góry."
+                    <TextBlock Text="Chwyć kafelek za uchwyt ⋮⋮ i przeciągnij, aby ustawić najważniejsze zadania u góry."
                                Classes="subtitle"
                                TextWrapping="Wrap" />
                 </StackPanel>
@@ -36,7 +36,7 @@
                      KeyDown="OnKeyDown"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      AutomationProperties.Name="Lista otwartych zadań"
-                     AutomationProperties.HelpText="Przeciągaj zadania lub używaj strzałek, aby zmieniać ich priorytet. Spacja kończy zadanie, a Enter otwiera jego źródło.">
+                     AutomationProperties.HelpText="Chwyć zadanie za uchwyt i przeciągnij, aby zmienić jego priorytet. Spacja kończy zadanie, a Enter otwiera jego źródło.">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="Padding" Value="0" />
@@ -70,7 +70,7 @@
                                 Padding="16,14"
                                 AutomationProperties.Name="{ReflectionBinding DisplayText}"
                                 AutomationProperties.HelpText="Spacja kończy zadanie. Enter otwiera jego źródło.">
-                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
                                 <Border Width="24"
                                         MinHeight="32"
                                         VerticalAlignment="Top"
@@ -121,24 +121,6 @@
                                                 Loaded="OnTaskPeopleButtonLoaded"
                                                 Click="OnTaskPeopleClick" />
                                     </Grid>
-                                </StackPanel>
-                                <StackPanel Grid.Column="3"
-                                            Spacing="4"
-                                            VerticalAlignment="Top">
-                                    <Button Content="↑"
-                                            Width="30"
-                                            Height="28"
-                                            Padding="0"
-                                            IsEnabled="{ReflectionBinding CanMoveUp}"
-                                            ToolTip.Tip="Przenieś zadanie wyżej"
-                                            Click="OnTaskMoveUp" />
-                                    <Button Content="↓"
-                                            Width="30"
-                                            Height="28"
-                                            Padding="0"
-                                            IsEnabled="{ReflectionBinding CanMoveDown}"
-                                            ToolTip.Tip="Przenieś zadanie niżej"
-                                            Click="OnTaskMoveDown" />
                                 </StackPanel>
                             </Grid>
                         </Border>

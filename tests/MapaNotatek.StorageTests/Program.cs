@@ -431,13 +431,11 @@ static void TaskPriorityDragIsWired()
     var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
     var shellCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
 
-    True(tasks.Contains("Przeciągnij kafelek lub użyj strzałek", StringComparison.Ordinal));
+    True(tasks.Contains("Chwyć kafelek za uchwyt ⋮⋮ i przeciągnij", StringComparison.Ordinal));
     True(tasks.Contains("Cursor=\"SizeAll\"", StringComparison.Ordinal));
     True(tasks.Contains("PointerPressed=\"OnTaskCardPointerPressed\"", StringComparison.Ordinal));
-    True(tasks.Contains("Click=\"OnTaskMoveUp\"", StringComparison.Ordinal));
-    True(tasks.Contains("Click=\"OnTaskMoveDown\"", StringComparison.Ordinal));
-    True(tasks.Contains("ReflectionBinding CanMoveUp", StringComparison.Ordinal));
-    True(tasks.Contains("ReflectionBinding CanMoveDown", StringComparison.Ordinal));
+    False(tasks.Contains("OnTaskMoveUp", StringComparison.Ordinal));
+    False(tasks.Contains("OnTaskMoveDown", StringComparison.Ordinal));
     True(tasksCode.Contains("e.Pointer.Capture(TasksList)", StringComparison.Ordinal));
     True(tasksCode.Contains("PointerCaptureLostEvent", StringComparison.Ordinal));
     True(tasksCode.Contains("GetVisualDescendants()", StringComparison.Ordinal));
@@ -446,7 +444,7 @@ static void TaskPriorityDragIsWired()
     True(tasksCode.Contains("ViewModel.MoveTask", StringComparison.Ordinal));
     True(tasksCode.Contains("targetIndex > movedIndex", StringComparison.Ordinal));
     True(viewModel.Contains("public bool MoveTask", StringComparison.Ordinal));
-    True(viewModel.Contains("public bool MoveTaskByOffset", StringComparison.Ordinal));
+    False(viewModel.Contains("MoveTaskByOffset", StringComparison.Ordinal));
     True(viewModel.Contains("task.Item.Priority.HasValue", StringComparison.Ordinal));
     True(tasks.Contains("ReflectionBinding DisplayText", StringComparison.Ordinal));
     True(viewModel.Contains("public event Action? EditorOpenRequested", StringComparison.Ordinal));

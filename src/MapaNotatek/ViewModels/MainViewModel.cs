@@ -1026,21 +1026,6 @@ public sealed class MainViewModel : ObservableObject
         return true;
     }
 
-    public bool MoveTaskByOffset(OpenTask task, int offset)
-    {
-        var index = VisibleTasks.IndexOf(task);
-        var targetIndex = index + offset;
-        if (index < 0 || targetIndex < 0 || targetIndex >= VisibleTasks.Count)
-        {
-            return false;
-        }
-
-        return MoveTask(
-            task,
-            VisibleTasks[targetIndex],
-            placeAfter: offset > 0);
-    }
-
     public void Undo()
     {
         if (_undo.Count == 0)
@@ -1861,11 +1846,8 @@ public sealed class MainViewModel : ObservableObject
                 Projects.Where(ShouldShowProjectInList))
             .ToList();
         VisibleTasks.Clear();
-        for (var index = 0; index < visibleTasks.Count; index++)
+        foreach (var task in visibleTasks)
         {
-            var task = visibleTasks[index];
-            task.CanMoveUp = index > 0;
-            task.CanMoveDown = index < visibleTasks.Count - 1;
             VisibleTasks.Add(task);
         }
 

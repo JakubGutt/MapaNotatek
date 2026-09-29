@@ -193,28 +193,6 @@ public partial class TaskListView : UserControl
             .FirstOrDefault();
     }
 
-    private void OnTaskMoveUp(object? sender, RoutedEventArgs e) => MoveTaskByOffset(sender, -1);
-
-    private void OnTaskMoveDown(object? sender, RoutedEventArgs e) => MoveTaskByOffset(sender, 1);
-
-    private void MoveTaskByOffset(object? sender, int offset)
-    {
-        if (sender is not Button { DataContext: OpenTask task } ||
-            ViewModel is null ||
-            !ViewModel.MoveTaskByOffset(task, offset))
-        {
-            return;
-        }
-
-        Bind();
-        var moved = ViewModel.VisibleTasks.FirstOrDefault(candidate => ReferenceEquals(candidate.Item, task.Item));
-        if (moved is not null)
-        {
-            TasksList.SelectedItem = moved;
-            TasksList.ScrollIntoView(moved);
-        }
-    }
-
     private void OnTaskChecked(object? sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox check ||
