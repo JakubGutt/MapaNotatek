@@ -61,6 +61,7 @@ var tests = new (string Name, Action Run)[]
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
+    ("przypisania osób korzystają wyłącznie z selektora rejestru", PersonAssignmentsUseRegistryPicker),
     ("kliknięcie poza polem kończy edycję w całej aplikacji", ClickOutsideDismissesTextEditing),
     ("wyszukiwarka obsługuje filtry i pełne frazy", SearchFiltersAndPhrases),
     ("wyszukiwarka obsługuje wykluczenia i zadania", SearchExclusionsAndTasks),
@@ -410,8 +411,10 @@ static void PeoplePanelIsWired()
     True(shell.Contains("x:Name=\"PeopleRadio\"", StringComparison.Ordinal));
     True(shell.Contains("x:Name=\"PeopleHost\"", StringComparison.Ordinal));
     True(shellCode.Contains("_vm.PeopleChanged += OnPeopleChanged", StringComparison.Ordinal));
-    True(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
-    True(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
+    True(editor.Contains("x:Name=\"ProjectPeopleButton\"", StringComparison.Ordinal));
+    True(editor.Contains("x:Name=\"NotePeopleButton\"", StringComparison.Ordinal));
+    False(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
+    False(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"DetailAvatar\"", StringComparison.Ordinal));
     True(people.Contains("x:Name=\"PersonTasksList\"", StringComparison.Ordinal));
 }
@@ -426,6 +429,22 @@ static void ClickOutsideDismissesTextEditing()
     True(behavior.Contains("AddClassHandler<TopLevel>", StringComparison.Ordinal));
     True(behavior.Contains("RoutingStrategies.Tunnel", StringComparison.Ordinal));
     True(behavior.Contains("focusManager.Focus(null", StringComparison.Ordinal));
+}
+
+static void PersonAssignmentsUseRegistryPicker()
+{
+    var root = FindRepositoryRoot();
+    var editor = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "EditorPanel.axaml"));
+    var tasks = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml"));
+    var picker = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "PersonPickerMenu.cs"));
+
+    True(editor.Contains("x:Name=\"ProjectPeopleButton\"", StringComparison.Ordinal));
+    True(editor.Contains("x:Name=\"NotePeopleButton\"", StringComparison.Ordinal));
+    True(tasks.Contains("Click=\"OnTaskPeopleClick\"", StringComparison.Ordinal));
+    True(picker.Contains("MenuItemToggleType.CheckBox", StringComparison.Ordinal));
+    True(picker.Contains("Brak osób — dodaj je najpierw w panelu Osoby", StringComparison.Ordinal));
+    False(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
+    False(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));
 }
 
 static void ChecklistPositionRoundTrip()
@@ -575,10 +594,14 @@ static void PersonNameResolvesToStableSlug()
     };
 
     var resolved = PersonTagService.Resolve("Anna Kowalska, @piotr-nowak, osoba-spoza-rejestru", people);
-    Equal(3, resolved.Count);
+    Equal(2, resolved.Count);
     Equal("nowa-osoba", resolved[0]);
     Equal("piotr-nowak", resolved[1]);
-    Equal("osoba-spoza-rejestru", resolved[2]);
+    False(resolved.Contains("osoba-spoza-rejestru"), "Nie można przypisać osoby spoza rejestru.");
+
+    var sanitized = PersonTagService.KeepRegistered(["nowa-osoba", "nieistniejaca-osoba"], people);
+    Equal(1, sanitized.Count);
+    Equal("nowa-osoba", sanitized[0]);
 }
 
 static void TaskPeopleRoundTrip()

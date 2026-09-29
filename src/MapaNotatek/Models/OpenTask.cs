@@ -7,6 +7,5 @@ public sealed class OpenTask
     public string SourceTitle { get; set; } = string.Empty;
     public bool IsProject { get; set; }
     public ChecklistItem Item { get; set; } = new();
-    public string PeopleText => string.Join(", ", Item.People);
     public bool HasPeople => Item.People.Count > 0;
 }

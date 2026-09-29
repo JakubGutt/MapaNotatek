@@ -49,8 +49,27 @@ public static class PersonTagService
             .Select(candidate => people.FirstOrDefault(person =>
                     string.Equals(person.Slug, candidate, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(SlugHelper.FromName(person.Name), candidate, StringComparison.OrdinalIgnoreCase))
-                ?.Slug ?? candidate)
+                ?.Slug)
+            .Where(slug => !string.IsNullOrWhiteSpace(slug))
+            .Select(slug => slug!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public static List<string> KeepRegistered(
+        IEnumerable<string>? assignedPeople,
+        IEnumerable<Person>? knownPeople)
+    {
+        if (assignedPeople is null || knownPeople is null)
+        {
+            return [];
+        }
+
+        var known = knownPeople
+            .Select(person => person.Slug)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Normalize(assignedPeople)
+            .Where(known.Contains)
             .ToList();
     }
 

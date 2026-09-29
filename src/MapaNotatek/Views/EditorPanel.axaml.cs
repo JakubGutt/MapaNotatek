@@ -85,7 +85,7 @@ public partial class EditorPanel : UserControl
             };
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
-            ProjectPeopleBox.Text = PersonTagService.Format(project.People);
+            PersonPickerMenu.UpdateButton(ProjectPeopleButton, ViewModel.People, project.People);
             ProjectMetaText.Text = $"Utworzono {project.Created:g}  •  Zmieniono {project.Modified:g}";
             ProjectChecklistSection.IsVisible = !project.IsFolder;
             ProjectTasksSection.IsVisible = !project.IsFolder;
@@ -137,7 +137,7 @@ public partial class EditorPanel : UserControl
             NoteBodyBox.Text = note.Body;
             LoadVisualDocument(note, force: !string.Equals(_visualNoteId, note.Id, StringComparison.Ordinal));
             NoteTagsBox.Text = string.Join(", ", note.Tags);
-            NotePeopleBox.Text = PersonTagService.Format(note.People);
+            PersonPickerMenu.UpdateButton(NotePeopleButton, ViewModel.People, note.People);
             NoteDatesText.Text = $"Utworzono: {note.Created:g}\nZmieniono: {note.Modified:g}";
             FillChecklist(
                 NoteChecklistHost,
@@ -206,13 +206,18 @@ public partial class EditorPanel : UserControl
 
         project.Name = ProjectNameBox.Text ?? string.Empty;
         project.Description = ProjectDescriptionBox.Text ?? string.Empty;
-        if (ReferenceEquals(sender, ProjectPeopleBox))
+        ViewModel.ScheduleSaveProject(project);
+    }
+
+    private void OnProjectPeopleClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && ViewModel?.SelectedProject is { } project)
         {
-            ViewModel.UpdateProjectPeople(project, ProjectPeopleBox.Text);
-        }
-        else
-        {
-            ViewModel.ScheduleSaveProject(project);
+            PersonPickerMenu.Show(
+                button,
+                ViewModel.People,
+                project.People,
+                selected => ViewModel.UpdateProjectPeople(project, string.Join(",", selected)));
         }
     }
 
@@ -278,17 +283,22 @@ public partial class EditorPanel : UserControl
             ForgetStaleSelection(NoteBodyBox);
         }
         note.Tags = FrontMatter.SplitTags(NoteTagsBox.Text);
-        if (ReferenceEquals(sender, NotePeopleBox))
-        {
-            ViewModel.UpdateNotePeople(note, NotePeopleBox.Text);
-        }
-        else
-        {
-            ViewModel.ScheduleSaveNote(note);
-        }
+        ViewModel.ScheduleSaveNote(note);
         UpdatePreviewAndLinks(note);
         UpdateDocumentCount(note.Body);
         EditorSaveStatusText.Text = "Zapisywanie…";
+    }
+
+    private void OnNotePeopleClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && ViewModel?.SelectedNote is { } note)
+        {
+            PersonPickerMenu.Show(
+                button,
+                ViewModel.People,
+                note.People,
+                selected => ViewModel.UpdateNotePeople(note, string.Join(",", selected)));
+        }
     }
 
     private void OnNoteModeChanged(object? sender, RoutedEventArgs e)
@@ -653,26 +663,23 @@ public partial class EditorPanel : UserControl
         editorWithOutput.Children.Add(outputHost);
         if (block.Kind == DocumentBlockKind.Checklist)
         {
-            var peopleBox = new TextBox
-            {
-                Text = PersonTagService.Format(block.People),
-                PlaceholderText = "Osoby: Anna Kowalska, piotr-nowak",
-                FontSize = 11,
-                MinHeight = 30,
-                Margin = new Thickness(3, 3, 0, 0)
-            };
-            peopleBox.TextChanged += (_, _) =>
-            {
-                if (_suppress)
+            var peopleButton = PersonPickerMenu.CreateButton(
+                ViewModel?.People ?? [],
+                block.People,
+                selected =>
                 {
-                    return;
-                }
+                    if (_suppress)
+                    {
+                        return;
+                    }
 
-                block.People = ViewModel?.ResolvePeopleAssignments(peopleBox.Text) ?? PersonTagService.Parse(peopleBox.Text);
-                SyncVisualToNote(updateOutline: false);
-                ViewModel?.NotifyPeopleAssignmentsChanged();
-            };
-            editorWithOutput.Children.Add(peopleBox);
+                    block.People = selected.ToList();
+                    SyncVisualToNote(updateOutline: false);
+                    ViewModel?.NotifyPeopleAssignmentsChanged();
+                },
+                fontSize: 11);
+            peopleButton.Margin = new Thickness(3, 3, 0, 0);
+            editorWithOutput.Children.Add(peopleButton);
         }
         Control body = editorWithOutput;
         if (block.Kind is DocumentBlockKind.Bullet or DocumentBlockKind.Numbered or DocumentBlockKind.Checklist)
@@ -2446,19 +2453,16 @@ public partial class EditorPanel : UserControl
                 FillChecklist(host, items, changed, addNext);
             };
 
-            var people = new TextBox
-            {
-                Text = PersonTagService.Format(item.People),
-                PlaceholderText = "Osoby: Anna Kowalska, piotr-nowak",
-                FontSize = 11,
-                MinHeight = 30
-            };
-            people.TextChanged += (_, _) =>
-            {
-                item.People = ViewModel?.ResolvePeopleAssignments(people.Text) ?? PersonTagService.Parse(people.Text);
-                changed();
-                ViewModel?.NotifyPeopleAssignmentsChanged();
-            };
+            var people = PersonPickerMenu.CreateButton(
+                ViewModel?.People ?? [],
+                item.People,
+                selected =>
+                {
+                    item.People = selected.ToList();
+                    changed();
+                    ViewModel?.NotifyPeopleAssignmentsChanged();
+                },
+                fontSize: 11);
 
             var row = new Grid
             {

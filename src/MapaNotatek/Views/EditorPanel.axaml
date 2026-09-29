@@ -146,11 +146,12 @@
                                      VerticalContentAlignment="Top"
                                      TextChanged="OnProjectChanged" />
                             <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,4,0,0" />
-                            <TextBox x:Name="ProjectPeopleBox"
-                                     PlaceholderText="Anna Kowalska, piotr-nowak"
-                                     ToolTip.Tip="Wpisz imiona i nazwiska lub identyfikatory osób, rozdzielone przecinkami"
-                                     TextChanged="OnProjectChanged" />
-                            <TextBlock Text="Osobne przypisanie osób — niezależne od tagów projektu."
+                            <Button x:Name="ProjectPeopleButton"
+                                    Content="Wybierz osoby…"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Click="OnProjectPeopleClick" />
+                            <TextBlock Text="Możesz wybrać wyłącznie osoby istniejące w panelu Osoby."
                                        Classes="metadata"
                                        TextWrapping="Wrap" />
                             <TextBlock x:Name="ProjectMetaText"
@@ -514,10 +515,11 @@
                                        TextWrapping="Wrap" />
 
                             <TextBlock Classes="MetaLabel" Text="OSOBY" Margin="0,10,0,0" />
-                            <TextBox x:Name="NotePeopleBox"
-                                     PlaceholderText="Anna Kowalska, piotr-nowak"
-                                     ToolTip.Tip="Wpisz imiona i nazwiska lub identyfikatory osób, rozdzielone przecinkami"
-                                     TextChanged="OnNoteChanged" />
+                            <Button x:Name="NotePeopleButton"
+                                    Content="Wybierz osoby…"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Click="OnNotePeopleClick" />
                             <TextBlock Text="Te przypisania zasilają panel Osoby i nie mieszają się ze zwykłymi tagami."
                                        FontSize="11"
                                        Opacity="0.55"

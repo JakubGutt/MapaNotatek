@@ -471,6 +471,9 @@ public sealed class MainViewModel : ObservableObject
     public List<string> ResolvePeopleAssignments(string? value) =>
         PersonTagService.Resolve(value, People);
 
+    public List<string> KeepRegisteredPeople(IEnumerable<string>? values) =>
+        PersonTagService.KeepRegistered(values, People);
+
     public void UpdateProjectPeople(Project project, string? value)
     {
         var resolved = ResolvePeopleAssignments(value);
@@ -1758,12 +1761,14 @@ public sealed class MainViewModel : ObservableObject
 
     private void SaveNoteWithHistory(Note note)
     {
+        SanitizePeopleAssignments(note.People, note.Checklist);
         _revisionStore.CaptureExisting("Notes", note.Id, note.FilePath);
         Store.SaveNote(note);
     }
 
     private void SaveProjectWithHistory(Project project)
     {
+        SanitizePeopleAssignments(project.People, project.Checklist);
         var oldSlug = project.Slug;
         var desired = SlugHelper.FromName(project.Name);
         if (string.Equals(oldSlug, desired, StringComparison.OrdinalIgnoreCase))
@@ -1828,6 +1833,17 @@ public sealed class MainViewModel : ObservableObject
             throw new IOException(
                 "Nie udało się zapisać zmiany nazwy projektu ani w pełni wycofać powiązań notatek.",
                 new AggregateException([saveError, .. rollbackErrors]));
+        }
+    }
+
+    private void SanitizePeopleAssignments(List<string> documentPeople, IEnumerable<ChecklistItem> checklist)
+    {
+        var registered = KeepRegisteredPeople(documentPeople);
+        documentPeople.Clear();
+        documentPeople.AddRange(registered);
+        foreach (var item in checklist)
+        {
+            item.People = KeepRegisteredPeople(item.People);
         }
     }
 

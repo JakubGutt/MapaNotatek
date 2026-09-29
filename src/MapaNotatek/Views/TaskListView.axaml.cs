@@ -51,11 +51,23 @@ public partial class TaskListView : UserControl
         CompleteTask(task);
     }
 
-    private void OnTaskPeopleChanged(object? sender, TextChangedEventArgs e)
+    private void OnTaskPeopleButtonLoaded(object? sender, RoutedEventArgs e)
     {
-        if (sender is TextBox { DataContext: OpenTask task } box && ViewModel is not null)
+        if (sender is Button { DataContext: OpenTask task } button && ViewModel is not null)
         {
-            ViewModel.UpdateTaskPeople(task, box.Text);
+            PersonPickerMenu.UpdateButton(button, ViewModel.People, task.Item.People);
+        }
+    }
+
+    private void OnTaskPeopleClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: OpenTask task } button && ViewModel is not null)
+        {
+            PersonPickerMenu.Show(
+                button,
+                ViewModel.People,
+                task.Item.People,
+                selected => ViewModel.UpdateTaskPeople(task, string.Join(",", selected)));
         }
     }
 
