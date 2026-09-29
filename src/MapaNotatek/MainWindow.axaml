@@ -203,6 +203,12 @@
                                   Grid.Row="1"
                                   DoubleTapped="OnLibraryTreeDoubleTapped"
                                   SelectionChanged="OnLibraryTreeSelectionChanged">
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem">
+                                    <Setter Property="IsExpanded"
+                                            Value="{ReflectionBinding IsExpanded, Mode=TwoWay}" />
+                                </Style>
+                            </TreeView.Styles>
                             <TreeView.ItemTemplate>
                                 <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
                                     <Grid ColumnDefinitions="28,*" ColumnSpacing="7" ToolTip.Tip="{ReflectionBinding TypeLabel}">

@@ -40,6 +40,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly Dictionary<string, Note> _pendingSaveNotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Project> _pendingSaveProjects = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Person> _pendingSavePeople = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _expandedNavigationKeys = new(StringComparer.OrdinalIgnoreCase);
     private Exception? _lastSaveError;
 
     public MainViewModel()
@@ -1840,6 +1841,7 @@ public sealed class MainViewModel : ObservableObject
 
     private void RebuildNavigationTree()
     {
+        CaptureNavigationExpansionState();
         NavigationTree.Clear();
         var visibleProjects = Projects.Where(ShouldShowProjectInList).ToList();
         var visibleNotes = Notes.Where(ShouldShowNoteInList)
@@ -1849,7 +1851,11 @@ public sealed class MainViewModel : ObservableObject
 
         NavigationTreeNode Build(Project project)
         {
-            var node = new NavigationTreeNode { Project = project };
+            var node = new NavigationTreeNode
+            {
+                Project = project,
+                IsExpanded = _expandedNavigationKeys.Contains("project:" + project.Id)
+            };
             foreach (var child in SortTreeChildren(byParent[project.Id]))
             {
                 node.Children.Add(Build(child));
@@ -1873,13 +1879,45 @@ public sealed class MainViewModel : ObservableObject
             .ToList();
         if (unassignedNotes.Count > 0)
         {
-            var unassignedGroup = new NavigationTreeNode { GroupTitle = "Notatki bez projektu" };
+            var unassignedGroup = new NavigationTreeNode
+            {
+                GroupTitle = "Notatki bez projektu",
+                IsExpanded = _expandedNavigationKeys.Contains("group:Notatki bez projektu")
+            };
             foreach (var note in unassignedNotes)
             {
                 unassignedGroup.Children.Add(new NavigationTreeNode { Note = note });
             }
 
             NavigationTree.Add(unassignedGroup);
+        }
+    }
+
+    private void CaptureNavigationExpansionState()
+    {
+        foreach (var node in FlattenNavigationTree(NavigationTree))
+        {
+            if (node.IsExpanded)
+            {
+                _expandedNavigationKeys.Add(node.ExpansionKey);
+            }
+            else
+            {
+                _expandedNavigationKeys.Remove(node.ExpansionKey);
+            }
+        }
+    }
+
+    private static IEnumerable<NavigationTreeNode> FlattenNavigationTree(
+        IEnumerable<NavigationTreeNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            foreach (var child in FlattenNavigationTree(node.Children))
+            {
+                yield return child;
+            }
         }
     }
 

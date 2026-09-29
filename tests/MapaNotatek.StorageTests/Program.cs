@@ -417,6 +417,10 @@ static void NavigationTreeIncludesNotes()
     True(viewModel.Contains("new NavigationTreeNode { Note = note }", StringComparison.Ordinal));
     True(viewModel.Contains("GroupTitle = \"Notatki bez projektu\"", StringComparison.Ordinal));
     True(node.Contains("public Note? Note", StringComparison.Ordinal));
+    True(shell.Contains("ReflectionBinding IsExpanded, Mode=TwoWay", StringComparison.Ordinal));
+    True(node.Contains("public bool IsExpanded", StringComparison.Ordinal));
+    True(viewModel.Contains("CaptureNavigationExpansionState", StringComparison.Ordinal));
+    False(shellCode.Contains("LibraryTree.ItemsSource = null", StringComparison.Ordinal));
 }
 
 static void TaskPriorityDragIsWired()

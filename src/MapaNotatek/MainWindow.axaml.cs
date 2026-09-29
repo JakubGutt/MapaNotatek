@@ -287,12 +287,6 @@ public partial class MainWindow : Window
             {
                 _peopleControl.Refresh();
             }
-            LibraryTree.ItemsSource = null;
-            LibraryTree.ItemsSource = _vm.NavigationTree;
-            PinnedList.ItemsSource = null;
-            PinnedList.ItemsSource = _vm.PinnedItems;
-            RecentList.ItemsSource = null;
-            RecentList.ItemsSource = _vm.RecentItems;
             UpdateEditorVisibility();
             UpdateEmptyState();
         });

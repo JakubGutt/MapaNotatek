@@ -53,6 +53,7 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 ### FR-PR — architektura, projekty, foldery i zadania
 
 - **FR-PR-11 — gotowe:** użytkownik może przeciągać kafelki otwartych zadań, aby ustawić ich globalny priorytet; najważniejsze zadania są wyświetlane u góry, a kolejność jest trwała.
+- **FR-PR-12 — gotowe:** lewe drzewo zachowuje rozwinięte gałęzie podczas otwierania notatek, zapisu oraz przenoszenia elementów.
 
 - **FR-PR-01 — gotowe:** użytkownik może tworzyć projekty oraz zagnieżdżone foldery.
 - **FR-PR-02 — gotowe:** tag zgodny ze slugiem projektu przypisuje notatkę do projektu.

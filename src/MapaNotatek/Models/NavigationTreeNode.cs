@@ -1,7 +1,11 @@
+using System.ComponentModel;
+
 namespace MapaNotatek.Models;
 
-public sealed class NavigationTreeNode
+public sealed class NavigationTreeNode : INotifyPropertyChanged
 {
+    private bool _isExpanded;
+
     public Project? Project { get; init; }
     public Note? Note { get; init; }
     public string? GroupTitle { get; init; }
@@ -15,6 +19,28 @@ public sealed class NavigationTreeNode
     public string TypeCode => Project?.ItemType.Code() ?? "N";
     public string TypeColor => Project?.ItemType.ColorHex() ?? "#64748B";
     public string TypeLabel => Project?.ItemType.Label() ?? (IsGroup ? "Grupa notatek" : "Notatka");
+    public string ExpansionKey => Project is not null
+        ? "project:" + Project.Id
+        : IsGroup
+            ? "group:" + GroupTitle
+            : "note:" + Note?.Id;
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value)
+            {
+                return;
+            }
+
+            _isExpanded = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public sealed class ObservableTreeChildren : System.Collections.ObjectModel.ObservableCollection<NavigationTreeNode>
