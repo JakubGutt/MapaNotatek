@@ -11,18 +11,28 @@ public partial class TaskListView : UserControl
 {
     private Point? _dragStart;
     private OpenTask? _dragCandidate;
-    private OpenTask? _activeDragTask;
-    private PointerPressedEventArgs? _dragPress;
+    private OpenTask? _dropTarget;
+    private bool _dropAfter;
+    private bool _isReordering;
 
     public TaskListView()
     {
         InitializeComponent();
-        DragDrop.SetAllowDrop(TasksList, true);
-        DragDrop.AddDragOverHandler(TasksList, OnTaskDragOver);
-        DragDrop.AddDropHandler(TasksList, OnTaskDrop);
-        TasksList.AddHandler(PointerPressedEvent, OnTaskPointerPressed, RoutingStrategies.Tunnel);
-        TasksList.AddHandler(PointerMovedEvent, OnTaskPointerMoved, RoutingStrategies.Tunnel);
-        TasksList.AddHandler(PointerReleasedEvent, (_, _) => ClearDragCandidate(), RoutingStrategies.Tunnel);
+        TasksList.AddHandler(
+            PointerPressedEvent,
+            OnTaskPointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        TasksList.AddHandler(
+            PointerMovedEvent,
+            OnTaskPointerMoved,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        TasksList.AddHandler(
+            PointerReleasedEvent,
+            OnTaskPointerReleased,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
+            handledEventsToo: true);
     }
 
     public MainViewModel? ViewModel { get; set; }
@@ -65,12 +75,14 @@ public partial class TaskListView : UserControl
 
         _dragStart = e.GetPosition(TasksList);
         _dragCandidate = task;
-        _dragPress = e;
+        _dropTarget = null;
+        _dropAfter = false;
+        _isReordering = false;
     }
 
-    private async void OnTaskPointerMoved(object? sender, PointerEventArgs e)
+    private void OnTaskPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_dragStart is null || _dragCandidate is null || _dragPress is null ||
+        if (_dragStart is null || _dragCandidate is null ||
             !e.GetCurrentPoint(TasksList).Properties.IsLeftButtonPressed)
         {
             return;
@@ -79,55 +91,50 @@ public partial class TaskListView : UserControl
         var position = e.GetPosition(TasksList);
         var dx = position.X - _dragStart.Value.X;
         var dy = position.Y - _dragStart.Value.Y;
-        if ((dx * dx) + (dy * dy) < 64)
+        if (!_isReordering && (dx * dx) + (dy * dy) < 36)
         {
             return;
         }
 
-        _activeDragTask = _dragCandidate;
-        var press = _dragPress;
-        ClearDragCandidate();
-        var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText("task-priority"));
-        try
+        if (!_isReordering)
         {
-            await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Move);
+            _isReordering = true;
+            e.Pointer.Capture(TasksList);
         }
-        finally
-        {
-            _activeDragTask = null;
-        }
-    }
 
-    private void OnTaskDragOver(object? sender, DragEventArgs e)
-    {
-        var target = FindTaskContainer(e.Source as Control)?.DataContext as OpenTask;
-        var isTaskMove = string.Equals(e.DataTransfer.TryGetText(), "task-priority", StringComparison.Ordinal);
-        var canDrop = isTaskMove && _activeDragTask is not null && target is not null &&
-                      !ReferenceEquals(_activeDragTask.Item, target.Item);
-        e.DragEffects = canDrop ? DragDropEffects.Move : DragDropEffects.None;
-        if (canDrop)
+        var targetContainer = FindTaskContainerAt(position);
+        if (targetContainer?.DataContext is OpenTask target &&
+            !ReferenceEquals(_dragCandidate.Item, target.Item))
         {
+            _dropTarget = target;
+            _dropAfter = e.GetPosition(targetContainer).Y > targetContainer.Bounds.Height / 2;
             TasksList.SelectedItem = target;
         }
+        else
+        {
+            _dropTarget = null;
+        }
+
+        e.Handled = true;
     }
 
-    private void OnTaskDrop(object? sender, DragEventArgs e)
+    private void OnTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        var container = FindTaskContainer(e.Source as Control);
-        if (_activeDragTask is null ||
-            container?.DataContext is not OpenTask target ||
-            ViewModel is null ||
-            ReferenceEquals(_activeDragTask.Item, target.Item))
+        var movedTask = _dragCandidate;
+        var targetTask = _dropTarget;
+        var placeAfter = _dropAfter;
+        var shouldMove = _isReordering && movedTask is not null && targetTask is not null && ViewModel is not null;
+        e.Pointer.Capture(null);
+        ClearDragState();
+        if (!shouldMove || movedTask is null || targetTask is null || ViewModel is null)
         {
             return;
         }
 
-        var placeAfter = e.GetPosition(container).Y > container.Bounds.Height / 2;
-        if (ViewModel.MoveTask(_activeDragTask, target, placeAfter))
+        if (ViewModel.MoveTask(movedTask, targetTask, placeAfter))
         {
             Bind();
-            var moved = ViewModel.VisibleTasks.FirstOrDefault(task => ReferenceEquals(task.Item, _activeDragTask.Item));
+            var moved = ViewModel.VisibleTasks.FirstOrDefault(task => ReferenceEquals(task.Item, movedTask.Item));
             if (moved is not null)
             {
                 TasksList.SelectedItem = moved;
@@ -138,11 +145,18 @@ public partial class TaskListView : UserControl
         e.Handled = true;
     }
 
-    private void ClearDragCandidate()
+    private void ClearDragState()
     {
         _dragStart = null;
         _dragCandidate = null;
-        _dragPress = null;
+        _dropTarget = null;
+        _dropAfter = false;
+        _isReordering = false;
+    }
+
+    private ListBoxItem? FindTaskContainerAt(Point position)
+    {
+        return FindTaskContainer(TasksList.InputHitTest(position) as Control);
     }
 
     private static ListBoxItem? FindTaskContainer(Control? source)
