@@ -482,6 +482,9 @@ static void PersonAssignmentsUseRegistryPicker()
     True(editor.Contains("x:Name=\"NotePeopleButton\"", StringComparison.Ordinal));
     True(tasks.Contains("Click=\"OnTaskPeopleClick\"", StringComparison.Ordinal));
     True(picker.Contains("MenuItemToggleType.CheckBox", StringComparison.Ordinal));
+    True(picker.Contains("StaysOpenOnClick = true", StringComparison.Ordinal));
+    True(picker.Contains("Zaznacz jedną lub kilka osób", StringComparison.Ordinal));
+    True(picker.Contains("Header = \"Gotowe\"", StringComparison.Ordinal));
     True(picker.Contains("Brak osób — dodaj je najpierw w panelu Osoby", StringComparison.Ordinal));
     False(editor.Contains("x:Name=\"ProjectPeopleBox\"", StringComparison.Ordinal));
     False(editor.Contains("x:Name=\"NotePeopleBox\"", StringComparison.Ordinal));

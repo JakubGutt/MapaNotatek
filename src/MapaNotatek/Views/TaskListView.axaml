@@ -117,6 +117,7 @@
                                                 MinHeight="30"
                                                 Padding="8,4"
                                                 FontSize="12"
+                                                ToolTip.Tip="Możesz przypisać kilka osób"
                                                 Loaded="OnTaskPeopleButtonLoaded"
                                                 Click="OnTaskPeopleClick" />
                                     </Grid>

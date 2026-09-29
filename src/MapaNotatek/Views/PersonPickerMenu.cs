@@ -52,6 +52,12 @@ public static class PersonPickerMenu
         }
         else
         {
+            menu.Items.Add(new MenuItem
+            {
+                Header = "Zaznacz jedną lub kilka osób",
+                IsEnabled = false
+            });
+            menu.Items.Add(new Separator());
             foreach (var person in people)
             {
                 var item = new MenuItem
@@ -89,6 +95,11 @@ public static class PersonPickerMenu
                 };
                 menu.Items.Add(item);
             }
+
+            menu.Items.Add(new Separator());
+            var done = new MenuItem { Header = "Gotowe" };
+            done.Click += (_, _) => menu.Close();
+            menu.Items.Add(done);
         }
 
         anchor.ContextMenu = menu;
@@ -117,8 +128,8 @@ public static class PersonPickerMenu
             _ => $"{names[0]}, {names[1]}  +{names.Count - 2}"
         };
         ToolTip.SetTip(button, names.Count == 0
-            ? "Można wybrać wyłącznie osoby istniejące w panelu Osoby"
-            : string.Join("\n", names));
+            ? "Możesz wybrać kilka osób istniejących w panelu Osoby"
+            : "Przypisane osoby:\n" + string.Join("\n", names));
     }
 
     private static HashSet<string> RegisteredSelection(
