@@ -158,6 +158,14 @@
                         <Ellipse Width="7" Height="7" Fill="#A855F7" />
                         <TextBlock Classes="metadata" Text="[[link]]" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#14B8A6" />
+                        <TextBlock Classes="metadata" Text="przypisanie do systemu" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="7" Height="7" Fill="#F59E0B" />
+                        <TextBlock Classes="metadata" Text="jawna relacja notatek" />
+                    </StackPanel>
                 </WrapPanel>
             </StackPanel>
         </Border>
@@ -205,7 +213,7 @@
                 Background="{DynamicResource SurfaceMutedBrush}"
                 IsHitTestVisible="False">
             <TextBlock Classes="metadata"
-                       Text="Kliknij, aby zbadać  •  podwójne kliknięcie otwiera  •  przeciągnij tło, aby przesunąć  •  rolka zmienia skalę" />
+                       Text="Kliknij, aby zbadać  •  podwójne kliknięcie otwiera  •  przeciągnij biały uchwyt, aby połączyć  •  Escape anuluje" />
         </Border>
 
         <Border x:Name="GraphSelectionCard"

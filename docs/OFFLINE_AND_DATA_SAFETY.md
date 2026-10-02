@@ -23,7 +23,7 @@ Notatki, projekty i profile osób są zwykłymi plikami Markdown z metadanymi w 
 
 Edytor komórkowy jest warstwą nad tym samym przenośnym formatem: po zapisie i ponownym otwarciu bloki są odtwarzane z Markdown. Interfejs nie udostępnia osobnego widoku źródłowego; dokładną treść można otrzymać przez eksport do pliku `.md`.
 
-Stan interfejsu jest przechowywany w `app-state.json`. Lokalna historia trafia do `History/` i domyślnie zachowuje do 30 wcześniejszych wersji każdego elementu. Log startowy i ostatni raport awarii, jeśli powstaną, leżą w systemowym folderze tymczasowym. Eksport raportu diagnostycznego odbywa się wyłącznie na żądanie, nie zawiera treści notatek i nie jest nigdzie wysyłany.
+Stan interfejsu jest przechowywany w `app-state.json`, a `library.json` identyfikuje bibliotekę i wersję jej schematu. Lokalna historia trafia do `History/` i domyślnie zachowuje do 30 wcześniejszych wersji każdego elementu. Log startowy i ostatni raport awarii, jeśli powstaną, leżą w systemowym folderze tymczasowym. Eksport raportu diagnostycznego odbywa się wyłącznie na żądanie, nie zawiera treści notatek i nie jest nigdzie wysyłany.
 
 ## Zapis i konflikt zmian
 
@@ -31,7 +31,7 @@ Przy zapisie aplikacja najpierw tworzy plik tymczasowy, zapisuje go na dysk, a n
 
 Po wczytaniu dokumentu aplikacja zapamiętuje skrót jego treści. Jeśli plik zostanie w międzyczasie zmieniony przez inny program, zapis zostaje zatrzymany. Użytkownik może zachować oczekujące zmiany jako osobną lokalną kopię; wersja zmieniona zewnętrznie nie jest automatycznie nadpisywana.
 
-Przy zamykaniu aplikacja próbuje opróżnić kolejkę zapisów. W razie błędu nie zamyka się bez ostrzeżenia i daje możliwość ponowienia, powrotu do dokumentu, zapisania konfliktu jako kopii albo świadomego zamknięcia bez zapisu.
+Przy zamykaniu aplikacja próbuje opróżnić kolejkę zapisów. W razie błędu nie zamyka się bez ostrzeżenia i daje możliwość ponowienia, powrotu do dokumentu, zapisania konfliktu jako kopii albo świadomego zamknięcia bez zapisu. Po poprawnym zapisie zawsze pyta o aktualizację zewnętrznej kopii.
 
 ## Błędy, kosz i historia
 
@@ -43,13 +43,19 @@ Usuwanie notatek i projektów przenosi je do `Trash/`; z poziomu aplikacji możn
 
 Funkcja kopii w ustawieniach:
 
-1. kopiuje wyłącznie `Notes/`, `Projects/`, `People/`, `Assets/`, `History/`, `Trash/`, `Recovery/` i `app-state.json`;
+1. kopiuje wyłącznie `Notes/`, `Projects/`, `People/`, `Assets/`, `History/`, `Trash/`, `Recovery/`, `app-state.json` i `library.json`;
 2. pomija dowiązania symboliczne;
 3. zapisuje rozmiar i SHA-256 każdego pliku w manifeście;
 4. weryfikuje gotową zawartość przed udostępnieniem folderu kopii;
 5. zabrania umieszczenia kopii wewnątrz biblioteki źródłowej.
 
 Przywracanie ponownie sprawdza manifest i akceptuje tylko nowy albo pusty folder. Nie scala danych i nie nadpisuje istniejącej biblioteki. Sama kopia nie jest szyfrowana — poufne dane należy przechowywać na zaszyfrowanym dysku lub zaszyfrowanym nośniku.
+
+Przy zamykaniu wskazane miejsce kopii przechowuje dwie zweryfikowane generacje: `Current` i `Previous`. Nowa generacja powstaje jako osobny katalog tymczasowy. Dopiero po sprawdzeniu sum kontrolnych następuje rotacja nazw; przerwana rotacja jest rozpoznawana przy kolejnej próbie.
+
+## Aktualizacja i migracja
+
+Aktualizacja aplikacji jest ręczna i offline. Nowa paczka programu nie zapisuje niczego w bibliotece podczas instalacji. Jeżeli zmienił się format danych, aplikacja sprawdza ilość wolnego miejsca, tworzy nową bibliotekę obok dotychczasowej, migruje i waliduje kopię, a następnie przełącza używaną lokalizację. Oryginalny katalog pozostaje do powrotu do starszej wersji. Biblioteka o schemacie nowszym niż obsługiwany otwiera się tylko do odczytu.
 
 ## Realistyczne ograniczenia
 

@@ -13,6 +13,7 @@ $project = Join-Path $root "src\MapaNotatek\MapaNotatek.csproj"
 if (-not (Test-Path $project)) {
     throw "Uruchom ten skrypt z katalogu repozytorium MapaNotatek."
 }
+$version = (& dotnet msbuild $project -getProperty:Version -nologo | Select-Object -Last 1).Trim()
 
 $rid = $args[0]
 if (-not $rid) {
@@ -50,6 +51,10 @@ dotnet publish $project `
   -o $out
 
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Symbole debugowania bibliotek natywnych nie są potrzebne użytkownikowi,
+# a bez kompresji zajmują około 100 MB.
+Get-ChildItem -Path $out -Filter "*.pdb" -File | Remove-Item -Force
 
 Copy-Item (Join-Path $root "docs\FIRST_RUN.md") (Join-Path $out "FIRST_RUN.md")
 Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLevel Optimal

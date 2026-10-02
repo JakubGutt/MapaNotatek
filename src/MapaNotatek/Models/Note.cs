@@ -7,6 +7,8 @@ public sealed class Note
     public string Body { get; set; } = string.Empty;
     public List<string> Tags { get; set; } = [];
     public List<string> People { get; set; } = [];
+    /// <summary>Stable ids of explicitly related notes. The UI treats the relation as undirected.</summary>
+    public List<string> RelatedNoteIds { get; set; } = [];
     public List<ChecklistItem> Checklist { get; set; } = [];
     public DateTimeOffset Created { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset Modified { get; set; } = DateTimeOffset.Now;

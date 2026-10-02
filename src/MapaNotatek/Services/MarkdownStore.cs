@@ -46,13 +46,18 @@ public sealed class MarkdownStore
 {
     private readonly Dictionary<(StorageArea Area, string Path), StorageReadIssue> _readIssues = new();
 
-    public MarkdownStore(string root)
+    public MarkdownStore(string root, bool isReadOnly = false)
     {
         Root = SafeFileStorage.NormalizeDirectory(root);
-        EnsureFolders();
+        IsReadOnly = isReadOnly;
+        if (!isReadOnly)
+        {
+            EnsureFolders();
+        }
     }
 
     public string Root { get; private set; }
+    public bool IsReadOnly { get; }
     public string ProjectsFolder => Path.Combine(Root, "Projects");
     public string NotesFolder => Path.Combine(Root, "Notes");
     public string PeopleFolder => Path.Combine(Root, "People");
@@ -69,6 +74,7 @@ public sealed class MarkdownStore
 
     public void SetRoot(string root)
     {
+        EnsureWritable();
         var normalized = SafeFileStorage.NormalizeDirectory(root);
         EnsureFolders(normalized);
         Root = normalized;
@@ -272,6 +278,7 @@ public sealed class MarkdownStore
 
     public void SaveProject(Project project)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(project);
         SafeFileStorage.ValidateFileToken(project.Id, "identyfikator projektu");
         SafeFileStorage.ValidateFileToken(project.Slug, "slug projektu");
@@ -290,6 +297,7 @@ public sealed class MarkdownStore
 
     public void SaveNote(Note note)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(note);
         SafeFileStorage.ValidateFileToken(note.Id, "identyfikator notatki");
 
@@ -308,6 +316,7 @@ public sealed class MarkdownStore
 
     public void SavePerson(Person person)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(person);
         SafeFileStorage.ValidateFileToken(person.Id, "identyfikator osoby");
         SafeFileStorage.ValidateFileToken(person.Slug, "slug osoby");
@@ -326,6 +335,7 @@ public sealed class MarkdownStore
 
     public void MoveNoteToTrash(Note note)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(note);
         if (string.IsNullOrWhiteSpace(note.FilePath) || !File.Exists(note.FilePath))
         {
@@ -342,6 +352,7 @@ public sealed class MarkdownStore
 
     public void RestoreNoteFromTrash(Note note)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(note);
         var source = SafeFileStorage.ValidateContainedFilePath(TrashFolder, note.FilePath);
         var destination = SafeFileStorage.GetContainedFilePath(NotesFolder, Path.GetFileName(source));
@@ -362,6 +373,7 @@ public sealed class MarkdownStore
 
     public void MoveProjectToTrash(Project project)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(project);
         if (string.IsNullOrWhiteSpace(project.FilePath) || !File.Exists(project.FilePath))
         {
@@ -378,6 +390,7 @@ public sealed class MarkdownStore
 
     public void MovePersonToTrash(Person person)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(person);
         if (string.IsNullOrWhiteSpace(person.FilePath) || !File.Exists(person.FilePath))
         {
@@ -394,6 +407,7 @@ public sealed class MarkdownStore
 
     public void RestorePersonFromTrash(Person person)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(person);
         var source = SafeFileStorage.ValidateContainedFilePath(TrashedPeopleFolder, person.FilePath);
         var originalSlug = person.Slug;
@@ -449,6 +463,7 @@ public sealed class MarkdownStore
 
     public void RestoreProjectFromTrash(Project project)
     {
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(project);
         var source = SafeFileStorage.ValidateContainedFilePath(TrashedProjectsFolder, project.FilePath);
         var originalSlug = project.Slug;
@@ -589,6 +604,7 @@ public sealed class MarkdownStore
             Slug = slug,
             Description = parsed.Body,
             People = PersonTagService.Parse(parsed["people"]),
+            SystemIds = FrontMatter.SplitTags(parsed["systems"]),
             Checklist = parsed.Checklist,
             IsArchived = FrontMatter.ReadBool(parsed["archived"]),
             ParentId = parentId,
@@ -624,6 +640,7 @@ public sealed class MarkdownStore
             Body = parsed.Body,
             Tags = FrontMatter.SplitTags(parsed["tags"]),
             People = PersonTagService.Parse(parsed["people"]),
+            RelatedNoteIds = FrontMatter.SplitTags(parsed["related_notes"]),
             Checklist = parsed.Checklist,
             Created = FrontMatter.ReadDate(parsed["created"], File.GetCreationTime(path)),
             Modified = FrontMatter.ReadDate(parsed["modified"], File.GetLastWriteTime(path)),
@@ -809,6 +826,14 @@ public sealed class MarkdownStore
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash", "Projects"));
         SafeFileStorage.EnsureContainedDirectory(root, Path.Combine(root, "Trash", "People"));
+    }
+
+    private void EnsureWritable()
+    {
+        if (IsReadOnly)
+        {
+            throw new InvalidOperationException("Biblioteka została otwarta tylko do odczytu, ponieważ używa nowszego formatu danych.");
+        }
     }
 
     private void ClearIssues(StorageArea area)

@@ -38,6 +38,8 @@ public partial class TaskListView : UserControl
 
     public MainViewModel? ViewModel { get; set; }
 
+    public event Action<int, int>? TaskCountsChanged;
+
     protected override void OnGotFocus(FocusChangedEventArgs e)
     {
         base.OnGotFocus(e);
@@ -55,10 +57,13 @@ public partial class TaskListView : UserControl
         }
 
         TasksList.ItemsSource = ViewModel.VisibleTasks;
-        var count = ViewModel.VisibleTasks.Count;
-        TasksCountText.Text = $"Otwarte: {count}";
-        EmptyState.IsVisible = count == 0;
-        TasksList.IsVisible = count > 0;
+        var openCount = ViewModel.VisibleTasks.Count;
+        var totalCount = ViewModel.VisibleProjects.Sum(project => project.Checklist.Count) +
+                         ViewModel.VisibleNotes.Sum(note => note.Checklist.Count);
+        TasksCountText.Text = $"Otwarte: {openCount} · Wszystkie: {totalCount}";
+        EmptyState.IsVisible = openCount == 0;
+        TasksList.IsVisible = openCount > 0;
+        TaskCountsChanged?.Invoke(openCount, totalCount);
     }
 
     private void OnTaskCardPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -106,11 +111,24 @@ public partial class TaskListView : UserControl
 
     private void OnTaskPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
+        if (_dragCandidate is null)
+        {
+            return;
+        }
+
         ClearDragState();
     }
 
     private void OnTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        // The list receives tunneled releases from every child control. Releasing
+        // capture here when no task drag is active cancels the native CheckBox and
+        // Button click sequences (task completion and the people picker).
+        if (_dragStart is null || _dragCandidate is null)
+        {
+            return;
+        }
+
         if (_dragStart is { } start && _dragCandidate is not null)
         {
             var position = e.GetPosition(TasksList);

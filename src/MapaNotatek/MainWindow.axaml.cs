@@ -31,6 +31,10 @@ public partial class MainWindow : Window
     private bool _focusModeActive;
     private bool _allowClose;
     private bool _saveFailureDialogOpen;
+    private readonly Stack<NavigationSnapshot> _backHistory = new();
+    private readonly Stack<NavigationSnapshot> _forwardHistory = new();
+    private bool _restoringNavigation;
+    private bool _navigationCapturedForPendingEditor;
 
     public MainWindow()
     {
@@ -42,7 +46,7 @@ public partial class MainWindow : Window
 
     private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_allowClose || _vm is null || _vm.FlushPendingSaves())
+        if (_allowClose || _vm is null)
         {
             return;
         }
@@ -50,6 +54,20 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (_saveFailureDialogOpen)
         {
+            return;
+        }
+
+        if (_vm.FlushPendingSaves())
+        {
+            _saveFailureDialogOpen = true;
+            try
+            {
+                await PromptBackupAndCloseAsync();
+            }
+            finally
+            {
+                _saveFailureDialogOpen = false;
+            }
             return;
         }
 
@@ -109,8 +127,7 @@ public partial class MainWindow : Window
 
             if (decision == "retry" && _vm.FlushPendingSaves())
             {
-                _allowClose = true;
-                Close();
+                await PromptBackupAndCloseAsync();
             }
             else if (decision == "discard")
             {
@@ -123,8 +140,7 @@ public partial class MainWindow : Window
                 {
                     if (_vm.PreservePendingChangesAsCopies() > 0)
                     {
-                        _allowClose = true;
-                        Close();
+                        await PromptBackupAndCloseAsync();
                     }
                 }
                 catch (Exception ex)
@@ -136,6 +152,106 @@ public partial class MainWindow : Window
         finally
         {
             _saveFailureDialogOpen = false;
+        }
+    }
+
+    private async Task PromptBackupAndCloseAsync()
+    {
+        while (true)
+        {
+            var update = new Button { Content = "Zaktualizuj kopię i zamknij", MinWidth = 190, IsDefault = true };
+            var change = new Button { Content = "Zmień miejsce kopii", MinWidth = 150 };
+            var without = new Button { Content = "Zamknij bez nowej kopii", MinWidth = 175 };
+            var cancel = new Button { Content = "Wróć do aplikacji", MinWidth = 135, IsCancel = true };
+            var decision = "cancel";
+            var target = _vm.State.BackupFolder;
+            var dialog = new Window
+            {
+                Title = "Kopia bezpieczeństwa",
+                Width = 620,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Content = new StackPanel
+                {
+                    Margin = new Thickness(20),
+                    Spacing = 14,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = string.IsNullOrWhiteSpace(target)
+                                ? "Nie wskazano jeszcze miejsca kopii. Przed zamknięciem wybierz osobny folder na dysku."
+                                : $"Czy zaktualizować zweryfikowaną kopię Current/Previous?\n{target}",
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new TextBlock
+                        {
+                            Text = "Najpierw powstanie kompletna nowa kopia i zostanie sprawdzona. Poprzednia poprawna wersja nie jest usuwana, dopóki nowa nie przejdzie weryfikacji.",
+                            Classes = { "metadata" },
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new WrapPanel
+                        {
+                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                            ItemSpacing = 8,
+                            LineSpacing = 8,
+                            Children = { cancel, without, change, update }
+                        }
+                    }
+                }
+            };
+            update.Click += (_, _) => { decision = "update"; dialog.Close(); };
+            change.Click += (_, _) => { decision = "change"; dialog.Close(); };
+            without.Click += (_, _) => { decision = "without"; dialog.Close(); };
+            cancel.Click += (_, _) => dialog.Close();
+            await dialog.ShowDialog(this);
+
+            if (decision == "cancel")
+            {
+                return;
+            }
+            if (decision == "without")
+            {
+                _allowClose = true;
+                Close();
+                return;
+            }
+            if (decision == "change" || string.IsNullOrWhiteSpace(target))
+            {
+                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Wybierz zewnętrzny folder kopii MapaNotatek",
+                    AllowMultiple = false
+                });
+                if (folders.Count == 0)
+                {
+                    continue;
+                }
+
+                target = Path.Combine(folders[0].Path.LocalPath, "MapaNotatek-Backup");
+                _vm.SaveBackupFolder(target);
+                if (decision == "change")
+                {
+                    continue;
+                }
+            }
+
+            try
+            {
+                _vm.StatusText = "Tworzenie i sprawdzanie kopii bezpieczeństwa…";
+                await Task.Run(() => BackupService.UpdateRotatingCopy(_vm.DataFolder, target!));
+                _vm.StatusText = "Kopia bezpieczeństwa została zweryfikowana";
+                _allowClose = true;
+                Close();
+                return;
+            }
+            catch (Exception ex)
+            {
+                _vm.StatusText = "Nie udało się zaktualizować kopii: " + ex.Message;
+                await ShowMessageAsync(
+                    "Kopia nie została zaktualizowana",
+                    ex.Message + "\n\nAplikacja pozostaje otwarta. Możesz ponowić próbę, zmienić miejsce albo świadomie zamknąć bez nowej kopii.");
+            }
         }
     }
 
@@ -153,6 +269,7 @@ public partial class MainWindow : Window
             _graphControl = new GraphView();
             _notesControl = new NoteListView();
             _tasksControl = new TaskListView();
+            _tasksControl.TaskCountsChanged += UpdateTaskCounters;
             _peopleControl = new PeopleView();
             _editorControl = new EditorPanel();
             GraphHost.Content = _graphControl;
@@ -198,17 +315,19 @@ public partial class MainWindow : Window
             _peopleControl.Refresh();
             _graphControl.Refresh();
             _graphControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
+            _graphControl.ConfirmHierarchyMove = ConfirmHierarchyMoveAsync;
             _editorControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
             _editorControl.NewProjectNoteRequested += CreateNote;
             _editorControl.FocusModeChanged += ApplyFocusMode;
             _editorControl.Refresh();
-            StatusText.Text = _vm.DataFolder;
+            StatusText.Text = string.IsNullOrWhiteSpace(_vm.StatusText) ? _vm.DataFolder : _vm.StatusText;
             UpdateEmptyState();
 
             _vm.GraphChanged += OnGraphChanged;
             _vm.PeopleChanged += OnPeopleChanged;
             _vm.EditorChanged += OnEditorChanged;
             _vm.EditorOpenRequested += OnEditorOpenRequested;
+            _vm.NavigationStarting += OnNavigationStarting;
             _vm.FocusNodeRequested += id =>
             {
                 Dispatcher.UIThread.Post(() =>
@@ -269,6 +388,14 @@ public partial class MainWindow : Window
                     () => _ = ShowStorageIssuesAsync(),
                     DispatcherPriority.Background);
             }
+            else if (!string.IsNullOrWhiteSpace(_vm.LibrarySafetyMessage))
+            {
+                Dispatcher.UIThread.Post(
+                    () => _ = ShowMessageAsync(
+                        _vm.IsLibraryReadOnly ? "Biblioteka tylko do odczytu" : "Bezpieczna migracja biblioteki",
+                        _vm.LibrarySafetyMessage),
+                    DispatcherPriority.Background);
+            }
         }
         catch (Exception ex)
         {
@@ -291,6 +418,12 @@ public partial class MainWindow : Window
             UpdateEditorVisibility();
             UpdateEmptyState();
         });
+    }
+
+    private void UpdateTaskCounters(int openCount, int totalCount)
+    {
+        TasksTabCountText.Text = openCount.ToString();
+        ToolTip.SetTip(TasksRadio, $"Otwarte zadania: {openCount} z {totalCount}");
     }
 
     private void OnPeopleChanged()
@@ -322,6 +455,17 @@ public partial class MainWindow : Window
                 ShowEditorPage();
             }
         });
+    }
+
+    private void OnNavigationStarting()
+    {
+        if (_restoringNavigation || _editorPageActive)
+        {
+            return;
+        }
+
+        RecordCurrentNavigation();
+        _navigationCapturedForPendingEditor = true;
     }
 
     private void UpdateEditorVisibility()
@@ -791,7 +935,8 @@ public partial class MainWindow : Window
                       (text.StartsWith("note:", StringComparison.Ordinal) ||
                        (text.StartsWith("project:", StringComparison.Ordinal) &&
                         _vm.Projects.FirstOrDefault(project => project.Id == text["project:".Length..]) is { } dragged &&
-                        _vm.CanSetProjectParent(dragged, target)));
+                        (target.ItemType == ProjectItemType.System && MainViewModel.SupportsSystemMembership(dragged) ||
+                         _vm.CanSetProjectParent(dragged, target))));
         e.DragEffects = canDrop ? DragDropEffects.Move : DragDropEffects.None;
     }
 
@@ -810,7 +955,14 @@ public partial class MainWindow : Window
             var project = _vm.Projects.FirstOrDefault(p => p.Id == projectId);
             if (project is not null)
             {
-                _vm.SetProjectParent(project, target.Id);
+                if (target.ItemType == ProjectItemType.System && MainViewModel.SupportsSystemMembership(project))
+                {
+                    _vm.AddProjectToSystem(project, target);
+                }
+                else
+                {
+                    _vm.SetProjectParent(project, target.Id);
+                }
             }
 
             e.Handled = true;
@@ -887,6 +1039,45 @@ public partial class MainWindow : Window
             _vm.DeleteProject(project);
             UpdateEmptyState();
         }
+    }
+
+    private async Task<bool> ConfirmHierarchyMoveAsync(Project child, Project parent)
+    {
+        var accepted = false;
+        var move = new Button { Content = "Zmień rodzica", MinWidth = 120, IsDefault = true };
+        var cancel = new Button { Content = "Anuluj", MinWidth = 90, IsCancel = true };
+        var dialog = new Window
+        {
+            Title = "Zmiana hierarchii",
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(18),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"„{child.Name}” ma już element nadrzędny. Czy przenieść go pod „{parent.Name}”? Przypisania do systemów pozostaną bez zmian.",
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Avalonia.Layout.Orientation.Horizontal,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { cancel, move }
+                    }
+                }
+            }
+        };
+        move.Click += (_, _) => { accepted = true; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(this);
+        return accepted;
     }
 
     private async Task ConfirmDeletePersonAsync(Person person)
@@ -1227,8 +1418,21 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
     }
 
-    private void ShowCenter(CenterViewKind kind)
+    private void ShowCenter(CenterViewKind kind, bool recordHistory = true)
     {
+        var changingView = _editorPageActive || _vm.CenterView != kind ||
+                           !(kind switch
+                           {
+                               CenterViewKind.Graph => GraphHost.IsVisible,
+                               CenterViewKind.Notes => NotesHost.IsVisible,
+                               CenterViewKind.Tasks => TasksHost.IsVisible,
+                               _ => PeopleHost.IsVisible
+                           });
+        if (recordHistory && changingView && !_restoringNavigation)
+        {
+            RecordCurrentNavigation();
+        }
+
         _editorControl.ExitFocusMode();
         _editorPageActive = false;
         _vm.CenterView = kind;
@@ -1269,12 +1473,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowEditorPage()
+    private void ShowEditorPage(bool recordHistory = true)
     {
         if (!_vm.IsEditorOpen)
         {
             return;
         }
+
+        if (recordHistory && !_editorPageActive && !_restoringNavigation && !_navigationCapturedForPendingEditor)
+        {
+            RecordCurrentNavigation();
+        }
+        _navigationCapturedForPendingEditor = false;
 
         _editorPageActive = true;
         GraphHost.IsVisible = false;
@@ -1288,6 +1498,101 @@ public partial class MainWindow : Window
         NotesRadio.IsChecked = false;
         TasksRadio.IsChecked = false;
         PeopleRadio.IsChecked = false;
+    }
+
+    private NavigationSnapshot CaptureNavigationSnapshot() => new(
+        _editorPageActive,
+        _vm.CenterView,
+        _vm.SelectedProject?.Id,
+        _vm.SelectedNote?.Id,
+        _graphControl.CaptureState());
+
+    private void RecordCurrentNavigation()
+    {
+        if (!_workspaceLoaded || _vm is null || _restoringNavigation)
+        {
+            return;
+        }
+
+        var snapshot = CaptureNavigationSnapshot();
+        if (_backHistory.TryPeek(out var previous) && previous.SameDestination(snapshot))
+        {
+            return;
+        }
+
+        _backHistory.Push(snapshot);
+        while (_backHistory.Count > 100)
+        {
+            var kept = _backHistory.ToArray().Take(100).ToArray();
+            _backHistory.Clear();
+            foreach (var item in kept.Reverse())
+            {
+                _backHistory.Push(item);
+            }
+        }
+        _forwardHistory.Clear();
+        UpdateNavigationButtons();
+    }
+
+    private void OnNavigateBack(object? sender, RoutedEventArgs e) => NavigateHistory(_backHistory, _forwardHistory);
+
+    private void OnNavigateForward(object? sender, RoutedEventArgs e) => NavigateHistory(_forwardHistory, _backHistory);
+
+    private void NavigateHistory(Stack<NavigationSnapshot> source, Stack<NavigationSnapshot> destination)
+    {
+        if (source.Count == 0)
+        {
+            return;
+        }
+
+        destination.Push(CaptureNavigationSnapshot());
+        var snapshot = source.Pop();
+        RestoreNavigationSnapshot(snapshot);
+        UpdateNavigationButtons();
+    }
+
+    private void RestoreNavigationSnapshot(NavigationSnapshot snapshot)
+    {
+        _restoringNavigation = true;
+        try
+        {
+            if (snapshot.IsEditor)
+            {
+                var project = snapshot.ProjectId is null ? null : _vm.Projects.FirstOrDefault(item => item.Id == snapshot.ProjectId);
+                var note = snapshot.NoteId is null ? null : _vm.Notes.FirstOrDefault(item => item.Id == snapshot.NoteId);
+                if (project is not null)
+                {
+                    _vm.SelectProject(project, openEditor: true, focusGraph: false);
+                    ShowEditorPage(recordHistory: false);
+                }
+                else if (note is not null)
+                {
+                    _vm.SelectNote(note, openEditor: true, focusGraph: false);
+                    ShowEditorPage(recordHistory: false);
+                }
+                else
+                {
+                    ShowCenter(snapshot.CenterView, recordHistory: false);
+                }
+            }
+            else
+            {
+                ShowCenter(snapshot.CenterView, recordHistory: false);
+            }
+
+            _graphControl.RestoreState(snapshot.GraphState);
+        }
+        finally
+        {
+            _restoringNavigation = false;
+            _navigationCapturedForPendingEditor = false;
+        }
+    }
+
+    private void UpdateNavigationButtons()
+    {
+        BackButton.IsEnabled = _backHistory.Count > 0;
+        ForwardButton.IsEnabled = _forwardHistory.Count > 0;
     }
 
     private void ApplyFocusMode(bool enabled)
@@ -1594,6 +1899,20 @@ public partial class MainWindow : Window
         var textInput = IsTextInputFocused();
         var graphOrList = IsGraphOrListFocused();
 
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && e.Key == Key.Left)
+        {
+            NavigateHistory(_backHistory, _forwardHistory);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && e.Key == Key.Right)
+        {
+            NavigateHistory(_forwardHistory, _backHistory);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.F6)
         {
             CyclePanel(shift ? -1 : 1);
@@ -1840,4 +2159,20 @@ public partial class MainWindow : Window
 
         return false;
     }
+}
+
+internal sealed record NavigationSnapshot(
+    bool IsEditor,
+    CenterViewKind CenterView,
+    string? ProjectId,
+    string? NoteId,
+    GraphViewState GraphState)
+{
+    public bool SameDestination(NavigationSnapshot other) =>
+        IsEditor == other.IsEditor &&
+        CenterView == other.CenterView &&
+        string.Equals(ProjectId, other.ProjectId, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(NoteId, other.NoteId, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(GraphState.FocusedProjectId, other.GraphState.FocusedProjectId, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(GraphState.SelectedId, other.GraphState.SelectedId, StringComparison.OrdinalIgnoreCase);
 }

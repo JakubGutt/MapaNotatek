@@ -22,6 +22,7 @@
     <Compile Include="../../src/MapaNotatek/Services/FrontMatter.cs" Link="Source/Services/FrontMatter.cs" />
     <Compile Include="../../src/MapaNotatek/Services/InlineFormattingService.cs" Link="Source/Services/InlineFormattingService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/LibraryFolderService.cs" Link="Source/Services/LibraryFolderService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/LibrarySchemaService.cs" Link="Source/Services/LibrarySchemaService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/LayoutService.cs" Link="Source/Services/LayoutService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/ListEditingService.cs" Link="Source/Services/ListEditingService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/MarkdownStore.cs" Link="Source/Services/MarkdownStore.cs" />

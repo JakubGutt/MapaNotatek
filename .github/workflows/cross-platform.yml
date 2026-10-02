@@ -24,7 +24,7 @@ jobs:
       - name: Restore
         run: dotnet restore MapaNotatek.sln
       - name: Build
-        run: dotnet build MapaNotatek.sln -c Release --no-restore
+        run: dotnet build MapaNotatek.sln -c Release --no-restore -m:1
       - name: Storage, recovery and offline regression tests
         run: dotnet run --project tests/MapaNotatek.StorageTests/MapaNotatek.StorageTests.csproj -c Release --no-build
       - name: DOCX, PDF and offline HTML export tests

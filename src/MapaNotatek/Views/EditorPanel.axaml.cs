@@ -86,6 +86,11 @@ public partial class EditorPanel : UserControl
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
             PersonPickerMenu.UpdateButton(ProjectPeopleButton, ViewModel.People, project.People);
+            ProjectSystemsPanel.IsVisible = MainViewModel.SupportsSystemMembership(project);
+            if (ProjectSystemsPanel.IsVisible)
+            {
+                SystemPickerMenu.UpdateButton(ProjectSystemsButton, ViewModel.AvailableSystems, project.SystemIds);
+            }
             ProjectMetaText.Text = $"Utworzono {project.Created:g}  •  Zmieniono {project.Modified:g}";
             ProjectChecklistSection.IsVisible = !project.IsFolder;
             ProjectTasksSection.IsVisible = !project.IsFolder;
@@ -138,6 +143,14 @@ public partial class EditorPanel : UserControl
             LoadVisualDocument(note, force: !string.Equals(_visualNoteId, note.Id, StringComparison.Ordinal));
             NoteTagsBox.Text = string.Join(", ", note.Tags);
             PersonPickerMenu.UpdateButton(NotePeopleButton, ViewModel.People, note.People);
+            ExplicitRelationsList.ItemsSource = ViewModel.Notes
+                .Where(candidate =>
+                    note.RelatedNoteIds.Contains(candidate.Id, StringComparer.OrdinalIgnoreCase) ||
+                    candidate.RelatedNoteIds.Contains(note.Id, StringComparer.OrdinalIgnoreCase))
+                .DistinctBy(candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(candidate => candidate.Title, StringComparer.CurrentCultureIgnoreCase)
+                .Select(candidate => new RelatedNoteEntry(candidate.Id, candidate.Title))
+                .ToList();
             NoteDatesText.Text = $"Utworzono: {note.Created:g}\nZmieniono: {note.Modified:g}";
             FillChecklist(
                 NoteChecklistHost,
@@ -221,6 +234,19 @@ public partial class EditorPanel : UserControl
         }
     }
 
+    private void OnProjectSystemsClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && ViewModel?.SelectedProject is { } project &&
+            MainViewModel.SupportsSystemMembership(project))
+        {
+            SystemPickerMenu.Show(
+                button,
+                ViewModel.AvailableSystems,
+                project.SystemIds,
+                selected => ViewModel.UpdateProjectSystems(project, selected));
+        }
+    }
+
     private void OnProjectPanelSizeChanged(object? sender, SizeChangedEventArgs e)
     {
         var compact = e.NewSize.Width < 820;
@@ -298,6 +324,21 @@ public partial class EditorPanel : UserControl
                 ViewModel.People,
                 note.People,
                 selected => ViewModel.UpdateNotePeople(note, string.Join(",", selected)));
+        }
+    }
+
+    private void OnExplicitRelationDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (ExplicitRelationsList.SelectedItem is not RelatedNoteEntry entry || ViewModel is null)
+        {
+            return;
+        }
+
+        var note = ViewModel.Notes.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, entry.Id, StringComparison.OrdinalIgnoreCase));
+        if (note is not null)
+        {
+            ViewModel.SelectNote(note, openEditor: true, focusGraph: true);
         }
     }
 
@@ -2496,5 +2537,10 @@ public partial class EditorPanel : UserControl
             }
         };
         return check;
+    }
+
+    private sealed record RelatedNoteEntry(string Id, string Title)
+    {
+        public override string ToString() => Title;
     }
 }

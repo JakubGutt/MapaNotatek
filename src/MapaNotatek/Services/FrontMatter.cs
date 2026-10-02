@@ -99,7 +99,9 @@ public static class FrontMatter
             slug: null,
             parentId: null,
             itemType: ProjectItemType.Project,
-            people: note.People);
+            people: note.People,
+            systems: null,
+            relatedNotes: note.RelatedNoteIds);
         builder.Append("# ").AppendLine(note.Title);
         builder.AppendLine();
 
@@ -128,7 +130,9 @@ public static class FrontMatter
             project.Slug,
             project.ParentId,
             project.ItemType,
-            project.People);
+            project.People,
+            project.SystemIds,
+            relatedNotes: null);
         builder.Append("# ").AppendLine(project.Name);
         builder.AppendLine();
 
@@ -388,7 +392,9 @@ public static class FrontMatter
         string? slug,
         string? parentId,
         ProjectItemType itemType,
-        IEnumerable<string>? people)
+        IEnumerable<string>? people,
+        IEnumerable<string>? systems,
+        IEnumerable<string>? relatedNotes)
     {
         builder.AppendLine("---");
         builder.Append("id: ").AppendLine(id);
@@ -414,6 +420,17 @@ public static class FrontMatter
         {
             builder.Append("people: ").AppendLine(personTags);
         }
+        var systemIds = JoinIds(systems);
+        if (type == "project" && !string.IsNullOrWhiteSpace(systemIds))
+        {
+            builder.Append("systems: ").AppendLine(systemIds);
+        }
+
+        var relatedIds = JoinIds(relatedNotes);
+        if (type == "note" && !string.IsNullOrWhiteSpace(relatedIds))
+        {
+            builder.Append("related_notes: ").AppendLine(relatedIds);
+        }
         if (archived.HasValue)
         {
             builder.Append("archived: ").AppendLine(archived.Value ? "true" : "false");
@@ -423,6 +440,12 @@ public static class FrontMatter
         builder.Append("modified: ").AppendLine(modified.ToString("O", CultureInfo.InvariantCulture));
         builder.AppendLine("---");
     }
+
+    private static string JoinIds(IEnumerable<string>? ids) => string.Join(", ",
+        (ids ?? [])
+        .Where(id => !string.IsNullOrWhiteSpace(id))
+        .Select(id => id.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase));
 
     public sealed class ParsedDocument
     {

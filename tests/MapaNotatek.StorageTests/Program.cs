@@ -10,6 +10,7 @@ var tests = new (string Name, Action Run)[]
     ("legacy task nie jest duplikowany", LegacyTaskIsNotDuplicated),
     ("metadane projektu przechodzą round-trip", ProjectMetadataRoundTrip),
     ("typy architektury przechodzą round-trip", ArchitectureTypesRoundTrip),
+    ("systemy i jawne relacje notatek przechodzą round-trip", ExplicitRelationsRoundTrip),
     ("hierarchia architektury pilnuje dozwolonych relacji", ArchitectureHierarchyRules),
     ("przypisania osób są osobne od tagów", PersonAssignmentsRoundTrip),
     ("nazwa osoby rozwiązuje się do stabilnego identyfikatora", PersonNameResolvesToStableSlug),
@@ -37,6 +38,11 @@ var tests = new (string Name, Action Run)[]
     ("kopia nie może powstać wewnątrz biblioteki", BackupCannotBeInsideLibrary),
     ("kopii nie można przywrócić do jej wnętrza", BackupRestoreCannotTargetInsideBackup),
     ("kopia odrzuca dowiązania symboliczne", BackupRejectsSymbolicLinks),
+    ("rotacja kopii zachowuje bieżącą i poprzednią wersję", RotatingBackupKeepsPrevious),
+    ("awaria rotacji nigdy nie usuwa ostatniej poprawnej kopii", RotatingBackupSurvivesFailures),
+    ("migracja biblioteki pracuje na kopii i zachowuje oryginał", LibraryMigrationPreservesOriginal),
+    ("błąd migracji nie zmienia oryginalnej biblioteki", FailedLibraryMigrationPreservesOriginal),
+    ("nowszy schemat biblioteki jest tylko do odczytu", NewerLibrarySchemaIsReadOnly),
     ("obraz jest kopiowany do lokalnego Assets", AttachmentIsImportedLocally),
     ("fałszywy obraz i złośliwy identyfikator są odrzucane", InvalidAttachmentIsRejected),
     ("historia deduplikuje i ogranicza liczbę rewizji", RevisionHistoryIsBounded),
@@ -62,6 +68,10 @@ var tests = new (string Name, Action Run)[]
     ("graf i drzewo rozróżniają typy architektury", ArchitectureTypesAreWired),
     ("lewe drzewo pokazuje notatki w kontekście projektów", NavigationTreeIncludesNotes),
     ("kafelki zadań obsługują ręczne ustawianie priorytetu", TaskPriorityDragIsWired),
+    ("obsługa przeciągania nie przechwytuje kontrolek zadania", TaskControlsAreNotIntercepted),
+    ("licznik zadań jest widoczny w zakładce i panelu", TaskCounterIsWired),
+    ("graf udostępnia typowane połączenia przez uchwyt", TypedGraphConnectionsAreWired),
+    ("nawigacja ma historię wstecz i dalej", NavigationHistoryIsWired),
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
@@ -475,6 +485,60 @@ static void PeoplePanelIsWired()
     True(shellCode.Contains("DeletePersonRequested", StringComparison.Ordinal));
 }
 
+static void TaskControlsAreNotIntercepted()
+{
+    var root = FindRepositoryRoot();
+    var code = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
+    var release = code.IndexOf("private void OnTaskPointerReleased", StringComparison.Ordinal);
+    var guard = code.IndexOf("if (_dragStart is null || _dragCandidate is null)", release, StringComparison.Ordinal);
+    var releaseCapture = code.IndexOf("e.Pointer.Capture(null)", release, StringComparison.Ordinal);
+    True(release >= 0 && guard > release && releaseCapture > guard,
+        "Obsługa puszczenia musi wyjść przed zwolnieniem przechwycenia, gdy nie trwa drag.");
+    True(code.Contains("OnTaskPeopleClick", StringComparison.Ordinal));
+    True(code.Contains("OnTaskChecked", StringComparison.Ordinal));
+}
+
+static void TaskCounterIsWired()
+{
+    var root = FindRepositoryRoot();
+    var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var shellCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
+    var tasksCode = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
+
+    True(shell.Contains("x:Name=\"TasksTabCountText\"", StringComparison.Ordinal));
+    True(shellCode.Contains("TaskCountsChanged += UpdateTaskCounters", StringComparison.Ordinal));
+    True(tasksCode.Contains("Otwarte: {openCount} · Wszystkie: {totalCount}", StringComparison.Ordinal));
+    True(tasksCode.Contains("TaskCountsChanged?.Invoke(openCount, totalCount)", StringComparison.Ordinal));
+}
+
+static void TypedGraphConnectionsAreWired()
+{
+    var root = FindRepositoryRoot();
+    var graph = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml.cs"));
+    var viewModel = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
+    True(graph.Contains("OnConnectorPressed", StringComparison.Ordinal));
+    True(graph.Contains("OnConnectorReleased", StringComparison.Ordinal));
+    True(graph.Contains("Usuń połączenie", StringComparison.Ordinal));
+    True(graph.Contains("Key.Escape", StringComparison.Ordinal));
+    True(viewModel.Contains("CreateGraphConnection", StringComparison.Ordinal));
+    True(viewModel.Contains("GraphRelationKind.SystemMembership", StringComparison.Ordinal));
+    True(viewModel.Contains("GraphRelationKind.ExplicitNoteRelation", StringComparison.Ordinal));
+}
+
+static void NavigationHistoryIsWired()
+{
+    var root = FindRepositoryRoot();
+    var shell = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml"));
+    var code = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
+    True(shell.Contains("x:Name=\"BackButton\"", StringComparison.Ordinal));
+    True(shell.Contains("x:Name=\"ForwardButton\"", StringComparison.Ordinal));
+    True(code.Contains("Stack<NavigationSnapshot>", StringComparison.Ordinal));
+    True(code.Contains("CaptureNavigationSnapshot", StringComparison.Ordinal));
+    True(code.Contains("RestoreNavigationSnapshot", StringComparison.Ordinal));
+    True(code.Contains("_graphControl.RestoreState", StringComparison.Ordinal));
+    True(code.Contains("KeyModifiers.Alt", StringComparison.Ordinal));
+}
+
 static void ClickOutsideDismissesTextEditing()
 {
     var root = FindRepositoryRoot();
@@ -605,6 +669,32 @@ static void ArchitectureTypesRoundTrip()
     Equal(subsystem.Id, loaded[component.Id].ParentId);
     Equal("system", FrontMatter.Parse(FrontMatter.WriteProject(system))["kind"]);
     Equal(ProjectItemType.Project, ProjectItemTypeCatalog.Parse(null));
+}
+
+static void ExplicitRelationsRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new MarkdownStore(temp.Path);
+    var systemA = store.CreateProject("System A", null, ProjectItemType.System);
+    var systemB = store.CreateProject("System B", null, ProjectItemType.System);
+    var component = store.CreateProject("Akumulator", null, ProjectItemType.Component);
+    component.SystemIds = [systemA.Id, systemB.Id];
+    store.SaveProject(component);
+    var first = store.CreateNote("Pierwsza");
+    var second = store.CreateNote("Druga");
+    first.RelatedNoteIds = [second.Id];
+    store.SaveNote(first);
+
+    var loadedComponent = store.LoadProjects().Single(project => project.Id == component.Id);
+    var loadedFirst = store.LoadNotes().Single(note => note.Id == first.Id);
+    Equal(2, loadedComponent.SystemIds.Count);
+    True(loadedComponent.SystemIds.Contains(systemA.Id));
+    True(loadedComponent.SystemIds.Contains(systemB.Id));
+    Equal(second.Id, loadedFirst.RelatedNoteIds.Single());
+    var parsedProject = FrontMatter.Parse(File.ReadAllText(loadedComponent.FilePath));
+    var parsedNote = FrontMatter.Parse(File.ReadAllText(loadedFirst.FilePath));
+    True((parsedProject["systems"] ?? "").Contains(systemA.Id, StringComparison.Ordinal));
+    Equal(second.Id, parsedNote["related_notes"]);
 }
 
 static void ArchitectureHierarchyRules()
@@ -1080,6 +1170,125 @@ static void BackupRejectsSymbolicLinks()
     var validation = BackupService.Validate(backup);
     False(validation.IsValid);
     True(validation.Errors.Any(error => error.Contains("dowiąz", StringComparison.OrdinalIgnoreCase)));
+}
+
+static void RotatingBackupKeepsPrevious()
+{
+    using var temp = new TemporaryDirectory();
+    var source = Path.Combine(temp.Path, "source");
+    var store = new MarkdownStore(source);
+    var note = store.CreateNote("Wersja");
+    note.Body = "pierwsza";
+    store.SaveNote(note);
+    var backupRoot = Path.Combine(temp.Path, "safe-copy");
+    BackupService.UpdateRotatingCopy(source, backupRoot);
+
+    note.Body = "druga";
+    store.SaveNote(note);
+    BackupService.UpdateRotatingCopy(source, backupRoot);
+
+    var current = Path.Combine(backupRoot, "Current");
+    var previous = Path.Combine(backupRoot, "Previous");
+    True(BackupService.Validate(current).IsValid);
+    True(BackupService.Validate(previous).IsValid);
+    True(File.ReadAllText(Directory.GetFiles(current, "*.md", SearchOption.AllDirectories).Single()).Contains("druga"));
+    True(File.ReadAllText(Directory.GetFiles(previous, "*.md", SearchOption.AllDirectories).Single()).Contains("pierwsza"));
+}
+
+static void RotatingBackupSurvivesFailures()
+{
+    foreach (var stage in new[] { "incoming-verified", "previous-retired", "current-to-previous", "incoming-to-current" })
+    {
+        using var temp = new TemporaryDirectory();
+        var source = Path.Combine(temp.Path, "source");
+        var store = new MarkdownStore(source);
+        var note = store.CreateNote("Awaria");
+        note.Body = "bezpieczna wersja";
+        store.SaveNote(note);
+        var backupRoot = Path.Combine(temp.Path, "backup");
+        BackupService.UpdateRotatingCopy(source, backupRoot);
+        note.Body = "nowa wersja";
+        store.SaveNote(note);
+        try
+        {
+            BackupService.RotationStageHook = current =>
+            {
+                if (current == stage)
+                {
+                    throw new IOException("symulowana awaria " + stage);
+                }
+            };
+            Throws<IOException>(() => BackupService.UpdateRotatingCopy(source, backupRoot));
+        }
+        finally
+        {
+            BackupService.RotationStageHook = null;
+        }
+
+        BackupService.RecoverInterruptedRotation(backupRoot);
+        var candidates = Directory.GetDirectories(backupRoot)
+            .Where(path => Path.GetFileName(path) is "Current" or "Previous" ||
+                           Path.GetFileName(path).StartsWith(".Previous-retired-", StringComparison.Ordinal));
+        True(candidates.Any(path => BackupService.Validate(path).IsValid),
+            "Po awarii etapu " + stage + " musi pozostać poprawna kopia.");
+    }
+}
+
+static void LibraryMigrationPreservesOriginal()
+{
+    using var temp = new TemporaryDirectory();
+    var source = Path.Combine(temp.Path, "legacy");
+    var store = new MarkdownStore(source);
+    var system = store.CreateProject("System", null, ProjectItemType.System);
+    var product = store.CreateProject("Produkt", system.Id, ProjectItemType.Product);
+    var originalFiles = Directory.GetFiles(source, "*", SearchOption.AllDirectories)
+        .ToDictionary(path => Path.GetRelativePath(source, path), File.ReadAllBytes);
+
+    var result = LibrarySchemaService.Prepare(source);
+    True(result.WasMigrated);
+    False(string.Equals(source, result.Root, StringComparison.OrdinalIgnoreCase));
+    var migrated = new MarkdownStore(result.Root).LoadProjects().Single(item => item.Id == product.Id);
+    True(migrated.SystemIds.Contains(system.Id));
+    True(File.Exists(Path.Combine(result.Root, LibrarySchemaService.ManifestFileName)));
+    foreach (var pair in originalFiles)
+    {
+        True(File.ReadAllBytes(Path.Combine(source, pair.Key)).SequenceEqual(pair.Value), "Oryginał zmienił się: " + pair.Key);
+    }
+}
+
+static void FailedLibraryMigrationPreservesOriginal()
+{
+    using var temp = new TemporaryDirectory();
+    var source = Path.Combine(temp.Path, "legacy-broken");
+    var store = new MarkdownStore(source);
+    var first = store.CreateNote("Pierwsza");
+    var duplicatePath = Path.Combine(source, "Notes", "duplikat.md");
+    File.Copy(first.FilePath, duplicatePath);
+    var originalFiles = Directory.GetFiles(source, "*", SearchOption.AllDirectories)
+        .ToDictionary(path => Path.GetRelativePath(source, path), File.ReadAllBytes);
+
+    Throws<InvalidDataException>(() => LibrarySchemaService.Prepare(source));
+    foreach (var pair in originalFiles)
+    {
+        True(File.ReadAllBytes(Path.Combine(source, pair.Key)).SequenceEqual(pair.Value), "Oryginał zmienił się po błędzie: " + pair.Key);
+    }
+    False(File.Exists(Path.Combine(source, LibrarySchemaService.ManifestFileName)));
+}
+
+static void NewerLibrarySchemaIsReadOnly()
+{
+    using var temp = new TemporaryDirectory();
+    var result = LibrarySchemaService.Prepare(temp.Path);
+    var manifestPath = Path.Combine(temp.Path, LibrarySchemaService.ManifestFileName);
+    var json = File.ReadAllText(manifestPath).Replace(
+        $"\"schemaVersion\": {LibrarySchemaService.CurrentSchemaVersion}",
+        $"\"schemaVersion\": {LibrarySchemaService.CurrentSchemaVersion + 1}",
+        StringComparison.Ordinal);
+    File.WriteAllText(manifestPath, json);
+    var newer = LibrarySchemaService.Prepare(temp.Path);
+    True(newer.IsReadOnly);
+    var store = new MarkdownStore(temp.Path, isReadOnly: true);
+    Throws<InvalidOperationException>(() => store.CreateNote("Nie zapisuj"));
 }
 
 static void AttachmentIsImportedLocally()

@@ -6,7 +6,7 @@
 2. Uruchom `MapaNotatek.app` na macOS albo `MapaNotatek.exe` na Windows.
 3. Przy pierwszym starcie aplikacja utworzy lokalną bibliotekę w folderze Dokumenty. Lokalizację można później zmienić w Ustawieniach.
 4. Zacznij od „Notatka z szablonu…” albo „Nowa notatka”. Wszystkie zmiany zapisują się automatycznie.
-5. W Ustawieniach wybierz „Eksportuj kopię” i wskaż osobny dysk lub nośnik. Kopia zostanie sprawdzona po utworzeniu.
+5. Przy zamykaniu wskaż osobny dysk lub nośnik na kopię. Aplikacja zachowa zweryfikowane wersje `Current` i `Previous`. Ręczny eksport z datą nadal jest dostępny w Ustawieniach.
 
 Aplikacja nie wymaga konta, internetu, serwera ani środowiska .NET. Nie synchronizuje danych między komputerami.
 
@@ -40,3 +40,5 @@ Wartość z PowerShella powinna być taka sama jak pierwsza wartość w pliku `.
 - Windows: `%USERPROFILE%\Documents\MapaNotatek`
 
 Zmiana lokalizacji w aplikacji nie przenosi starego folderu automatycznie. Najpierw utwórz kopię i upewnij się, że wskazujesz właściwą bibliotekę.
+
+Przy zmianie formatu danych aplikacja tworzy zmigrowany katalog obok dotychczasowego. Nie usuwaj starej biblioteki ani starszej wersji aplikacji, dopóki nie sprawdzisz najważniejszych notatek i projektów w nowej wersji.

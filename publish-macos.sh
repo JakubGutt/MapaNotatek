@@ -17,6 +17,8 @@ elif [[ -x /usr/local/share/dotnet/dotnet ]]; then
   export PATH="$DOTNET_ROOT:$PATH"
 fi
 
+version="$(dotnet msbuild "$project" -getProperty:Version -nologo | tail -n 1 | tr -d '[:space:]')"
+
 arch="$(uname -m)"
 if [[ "${1:-}" != "" ]]; then
   rid="$1"
@@ -49,6 +51,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp -R "$publish_dir"/. "$app/Contents/MacOS/"
 chmod +x "$app/Contents/MacOS/MapaNotatek"
 cp "$root/packaging/macos/Info.plist" "$app/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "${version%%-*}" "$app/Contents/Info.plist"
 
 # Bezpłatny podpis ad-hoc zapewnia integralność pakietu. Nie zastępuje płatnego
 # certyfikatu Developer ID ani notaryzacji Apple.

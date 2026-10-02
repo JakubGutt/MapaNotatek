@@ -25,7 +25,9 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - wspólne drzewo nawigacji: notatki są widoczne pod powiązanymi projektami, a luźne dokumenty w gałęzi „Notatki bez projektu”;
 - panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; przypisania wybiera się z rejestru osób, bez możliwości zapisania błędnego tagu;
 - usuwanie profili osób do kosza wraz z wyczyszczeniem ich przypisań z projektów, notatek i zadań;
-- ręczne ustawianie priorytetu zadań przez przeciąganie kafelków lub przyciski góra/dół; kolejność jest zapisywana w Markdown i zachowywana po ponownym uruchomieniu;
+- ręczne ustawianie priorytetu zadań przez przeciąganie kafelków; kolejność jest zapisywana w Markdown i zachowywana po ponownym uruchomieniu;
+- tworzenie typowanych połączeń bezpośrednio na grafie oraz jawne przypisywanie produktu, podsystemu lub komponentu do wielu systemów;
+- sesyjna historia Wstecz/Dalej przywracająca także zakres, zaznaczenie i pozycję grafu;
 - interaktywny graf architektury, projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
 - systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;
 - Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;
@@ -91,7 +93,7 @@ Przed pierwszym publikowaniem deweloper wykonuje jednorazowo `dotnet restore Map
 
 Wynik do przekazania koledze to `artifacts/MapaNotatek-<RID>.zip`. Obok powstaje plik `.zip.sha256`, którym można sprawdzić integralność paczki. CI buduje i testuje `osx-arm64` oraz `win-x64` przy każdym pushu i zgłoszeniu zmian (pull request).
 
-Pakiet macOS ma bezpłatny podpis ad-hoc, ale artefakty nie mają zaufanego podpisu Developer ID/Authenticode ani notaryzacji. Gatekeeper lub SmartScreen mogą więc pokazać ostrzeżenie. Do wygodnej dystrybucji poza małą, zaufaną grupą potrzebne są płatne certyfikaty, notaryzacja i ewentualnie `.dmg`/instalator. Aplikacja nie ma automatycznego aktualizatora — nową wersję przekazuje się jako nowy ZIP.
+Pakiet macOS ma bezpłatny podpis ad-hoc, ale artefakty nie mają zaufanego podpisu Developer ID/Authenticode ani notaryzacji. Gatekeeper lub SmartScreen mogą więc pokazać ostrzeżenie. Do wygodnej dystrybucji poza małą, zaufaną grupą potrzebne są płatne certyfikaty, notaryzacja i ewentualnie `.dmg`/instalator. Aplikacja nie ma automatycznego aktualizatora — nową wersję przekazuje się jako nowy ZIP z sumą SHA-256. Migracja formatu danych odbywa się w nowym katalogu, a oryginalna biblioteka pozostaje do wycofania aktualizacji.
 
 Krótka instrukcja dla odbiorcy: [Pierwsze uruchomienie](docs/FIRST_RUN.md).
 
@@ -109,6 +111,7 @@ MapaNotatek/
   Trash/                 # usunięte notatki
     Projects/            # usunięte projekty
   Recovery/              # zachowane uszkodzone pliki stanu
+  library.json           # identyfikator biblioteki i wersja schematu danych
   app-state.json         # ustawienia biblioteki i stan interfejsu
 ```
 
@@ -118,7 +121,7 @@ Notatki, projekty i profile osób są czytelnymi plikami `.md` z prostym nagłó
 
 Zapisy plików są wykonywane atomowo, z opróżnieniem bufora na dysk i kopią `.bak`. Błędy odczytu są pokazywane użytkownikowi; gdy to możliwe, aplikacja korzysta z kopii awaryjnej. Uszkodzony stan aplikacji jest zachowywany w `Recovery/`, zamiast znikać bez śladu.
 
-Kopia tworzona w ustawieniach jest folderem z manifestem SHA-256. Zawiera tylko dane należące do aplikacji, jest weryfikowana po utworzeniu i nie może leżeć wewnątrz biblioteki źródłowej. Przywracanie nie nadpisuje istniejącej biblioteki — wymaga nowego albo pustego folderu.
+Kopia tworzona w ustawieniach jest folderem z manifestem SHA-256. Zawiera tylko dane należące do aplikacji, jest weryfikowana po utworzeniu i nie może leżeć wewnątrz biblioteki źródłowej. Przy zamykaniu aplikacja proponuje aktualizację dwóch generacji `Current` i `Previous`. Przywracanie nie nadpisuje istniejącej biblioteki — wymaga nowego albo pustego folderu.
 
 Historia wersji i kosz ułatwiają cofnięcie pomyłki, ale nie zastępują kopii na osobnym nośniku.
 
@@ -126,7 +129,7 @@ Historia wersji i kosz ułatwiają cofnięcie pomyłki, ale nie zastępują kopi
 
 ```bash
 dotnet restore MapaNotatek.sln
-dotnet build MapaNotatek.sln -c Release --no-restore
+dotnet build MapaNotatek.sln -c Release --no-restore -m:1
 dotnet run --project tests/MapaNotatek.StorageTests/MapaNotatek.StorageTests.csproj -c Release --no-build
 dotnet run --project tests/MapaNotatek.ExportTests/MapaNotatek.ExportTests.csproj -c Release --no-build
 ```

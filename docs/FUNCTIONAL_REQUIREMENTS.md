@@ -52,7 +52,10 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 
 ### FR-PR — architektura, projekty, foldery i zadania
 
-- **FR-PR-11 — gotowe:** użytkownik może przeciągać kafelki otwartych zadań lub używać przycisków góra/dół, aby ustawić ich globalny priorytet; najważniejsze zadania są wyświetlane u góry, a kolejność jest trwała.
+- **FR-PR-11 — gotowe:** użytkownik może przeciągać kafelki otwartych zadań, aby ustawić ich globalny priorytet; najważniejsze zadania są wyświetlane u góry, a kolejność jest trwała.
+- **FR-GR-06 — gotowe:** uchwyt węzła tworzy walidowane połączenia hierarchiczne, systemowe, projekt–notatka i notatka–notatka; jawne krawędzie można usunąć bez usuwania węzłów.
+- **FR-AR-01 — gotowe:** produkt, podsystem i komponent mają jawny wielokrotny wybór systemów bez automatycznego dziedziczenia.
+- **FR-NAV-01 — gotowe:** Wstecz/Dalej przywraca widok, dokument i stan kamery grafu w bieżącej sesji.
 - **FR-PR-12 — gotowe:** lewe drzewo zachowuje rozwinięte gałęzie podczas otwierania notatek, zapisu oraz przenoszenia elementów.
 
 - **FR-PR-01 — gotowe:** użytkownik może tworzyć projekty oraz zagnieżdżone foldery.
@@ -92,6 +95,8 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-DATA-04 — gotowe:** usuwanie przenosi element do kosza z możliwością przywrócenia.
 - **FR-DATA-05 — gotowe:** uszkodzony stan jest zachowywany w `Recovery/`; błąd nie może zostać zamieniony po cichu na pusty dokument.
 - **FR-DATA-06 — gotowe:** kopia biblioteki ma manifest SHA-256, jest sprawdzana po utworzeniu i przed przywróceniem.
+- **FR-DATA-07 — gotowe:** przy zamykaniu użytkownik może zaktualizować zewnętrzną rotację `Current`/`Previous`; ostatnia poprawna kopia nie jest usuwana przed walidacją nowej.
+- **FR-DATA-08 — gotowe:** biblioteka ma wersję schematu, nowszy format blokuje zapis, a migracja starszego formatu pracuje na nowym katalogu obok oryginału.
 - **FR-DATA-07 — gotowe:** przywracanie wymaga nowego albo pustego folderu i nie nadpisuje istniejącej biblioteki.
 
 ## 3. Wymagania niefunkcjonalne

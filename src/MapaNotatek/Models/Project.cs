@@ -9,6 +9,8 @@ public sealed class Project
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<string> People { get; set; } = [];
+    /// <summary>Explicit system memberships. They are never inherited from the parent.</summary>
+    public List<string> SystemIds { get; set; } = [];
     public List<ChecklistItem> Checklist { get; set; } = [];
     public bool IsArchived { get; set; }
     /// <summary>Parent project/folder id; null/empty = root.</summary>

@@ -20,6 +20,10 @@ public partial class GraphView : UserControl
     private readonly ScaleTransform _zoomTransform = new(1, 1);
     private readonly Dictionary<string, Border> _nodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<GraphEdge> _edges = [];
+    private Avalonia.Controls.Shapes.Path? _connectionPreview;
+    private string? _connectionFromId;
+    private string? _connectionTargetId;
+    private GraphEdge? _selectedEdge;
     private string? _dragId;
     private Point _dragOffset;
     private Point _pressPoint;
@@ -44,8 +48,42 @@ public partial class GraphView : UserControl
 
     public event Action<double>? ZoomChanged;
     public event Action<Project>? DeleteProjectRequested;
+    public Func<Project, Project, Task<bool>>? ConfirmHierarchyMove { get; set; }
 
     public double ZoomFactor => _zoom;
+
+    public GraphViewState CaptureState() => new(
+        _zoom,
+        GraphScroll.Offset.X,
+        GraphScroll.Offset.Y,
+        ViewModel?.FocusedProjectId,
+        ViewModel?.SelectedGraphId,
+        ViewModel?.SelectedGraphIsProject ?? false);
+
+    public void RestoreState(GraphViewState state)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        ViewModel.FocusedProjectId = state.FocusedProjectId;
+        SetZoom(state.Zoom);
+        if (state.SelectedId is not null)
+        {
+            ViewModel.SelectGraphNode(state.SelectedId, state.SelectedIsProject);
+        }
+        else
+        {
+            ViewModel.ClearGraphSelection();
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            GraphScroll.Offset = new Vector(Math.Max(0, state.OffsetX), Math.Max(0, state.OffsetY));
+            HighlightSelection();
+        }, DispatcherPriority.Background);
+    }
 
     public void SetZoom(double factor)
     {
@@ -102,6 +140,7 @@ public partial class GraphView : UserControl
         GraphCanvas.Children.Clear();
         _nodes.Clear();
         _edges.Clear();
+        _selectedEdge = null;
 
         var projects = ViewModel.GraphProjects.ToList();
         var notes = ViewModel.GraphNotes.ToList();
@@ -120,6 +159,26 @@ public partial class GraphView : UserControl
             var from = LayoutService.Get(ViewModel.State.NodePositions, parent.Id);
             var to = LayoutService.Get(ViewModel.State.NodePositions, child.Id);
             AddEdge(parent.Id, child.Id, from, to, EdgeKind.Hierarchy);
+        }
+
+        var systemEdges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var member in projects.Where(MainViewModel.SupportsSystemMembership))
+        {
+            foreach (var systemId in member.SystemIds)
+            {
+                var system = projects.FirstOrDefault(project =>
+                    project.ItemType == ProjectItemType.System &&
+                    string.Equals(project.Id, systemId, StringComparison.OrdinalIgnoreCase));
+                if (system is null || !systemEdges.Add(system.Id + "|" + member.Id))
+                {
+                    continue;
+                }
+
+                AddEdge(system.Id, member.Id,
+                    LayoutService.Get(ViewModel.State.NodePositions, system.Id),
+                    LayoutService.Get(ViewModel.State.NodePositions, member.Id),
+                    EdgeKind.SystemMembership);
+            }
         }
 
         foreach (var note in notes)
@@ -158,6 +217,30 @@ public partial class GraphView : UserControl
                 var from = LayoutService.Get(ViewModel.State.NodePositions, source.Id);
                 var to = LayoutService.Get(ViewModel.State.NodePositions, target.Id);
                 AddEdge(source.Id, target.Id, from, to, EdgeKind.WikiLink);
+            }
+        }
+
+        var explicitEdges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in notes)
+        {
+            foreach (var targetId in source.RelatedNoteIds)
+            {
+                var target = notes.FirstOrDefault(note => string.Equals(note.Id, targetId, StringComparison.OrdinalIgnoreCase));
+                if (target is null || string.Equals(source.Id, target.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var edgeKey = string.Compare(source.Id, target.Id, StringComparison.OrdinalIgnoreCase) < 0
+                    ? $"{source.Id}|{target.Id}"
+                    : $"{target.Id}|{source.Id}";
+                if (explicitEdges.Add(edgeKey))
+                {
+                    AddEdge(source.Id, target.Id,
+                        LayoutService.Get(ViewModel.State.NodePositions, source.Id),
+                        LayoutService.Get(ViewModel.State.NodePositions, target.Id),
+                        EdgeKind.ExplicitNoteRelation);
+                }
             }
         }
 
@@ -310,6 +393,8 @@ public partial class GraphView : UserControl
         {
             EdgeKind.Hierarchy => (Color.FromArgb(220, 91, 141, 239), 2.4),
             EdgeKind.WikiLink => (Color.FromArgb(220, 168, 85, 247), 2.0),
+            EdgeKind.SystemMembership => (Color.FromArgb(225, 20, 184, 166), 2.5),
+            EdgeKind.ExplicitNoteRelation => (Color.FromArgb(220, 245, 158, 11), 2.1),
             _ => (Color.FromArgb(180, 138, 148, 164), 1.7)
         };
         var path = new Avalonia.Controls.Shapes.Path
@@ -317,10 +402,21 @@ public partial class GraphView : UserControl
             Stroke = new SolidColorBrush(color),
             StrokeThickness = thickness,
             Opacity = 0.86,
-            IsHitTestVisible = false,
+            IsHitTestVisible = true,
             Data = BuildCurve(new Point(from.X, from.Y), new Point(to.X, to.Y))
         };
+        if (kind == EdgeKind.SystemMembership)
+        {
+            path.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 5, 3 };
+        }
+        else if (kind == EdgeKind.ExplicitNoteRelation)
+        {
+            path.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 2, 3 };
+        }
         var edge = new GraphEdge(fromId, toId, kind, path, thickness);
+        path.Tag = edge;
+        path.PointerPressed += OnEdgePressed;
+        path.ContextRequested += OnEdgeContextRequested;
         _edges.Add(edge);
         GraphCanvas.Children.Add(path);
     }
@@ -403,10 +499,28 @@ public partial class GraphView : UserControl
             }
         };
 
-        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("32,10,*") };
+        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("32,10,*,18") };
         content.Children.Add(iconBorder);
         Grid.SetColumn(textStack, 2);
         content.Children.Add(textStack);
+        var connector = new Ellipse
+        {
+            Width = 12,
+            Height = 12,
+            Fill = new SolidColorBrush(Color.FromRgb(255, 255, 255)),
+            Stroke = new SolidColorBrush(Color.FromRgb(40, 103, 214)),
+            StrokeThickness = 2,
+            Cursor = new Cursor(StandardCursorType.Cross),
+            Tag = id,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        ToolTip.SetTip(connector, "Przeciągnij, aby utworzyć połączenie");
+        connector.PointerPressed += OnConnectorPressed;
+        connector.PointerMoved += OnConnectorMoved;
+        connector.PointerReleased += OnConnectorReleased;
+        connector.PointerCaptureLost += OnConnectorCaptureLost;
+        Grid.SetColumn(connector, 3);
+        content.Children.Add(connector);
 
         var host = new Border
         {
@@ -517,6 +631,166 @@ public partial class GraphView : UserControl
         _panning = false;
         e.Pointer.Capture(host);
         e.Handled = true;
+    }
+
+    private void OnConnectorPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Ellipse { Tag: string id } connector || ViewModel is null ||
+            !e.GetCurrentPoint(connector).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        CancelConnection();
+        Focus();
+        _connectionFromId = id;
+        var start = CenterOf(id);
+        _connectionPreview = new Avalonia.Controls.Shapes.Path
+        {
+            Stroke = new SolidColorBrush(Color.FromRgb(40, 103, 214)),
+            StrokeThickness = 2.5,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 4, 3 },
+            IsHitTestVisible = false,
+            Data = BuildCurve(start, start)
+        };
+        GraphCanvas.Children.Add(_connectionPreview);
+        e.Pointer.Capture(connector);
+        e.Handled = true;
+    }
+
+    private void OnConnectorMoved(object? sender, PointerEventArgs e)
+    {
+        if (_connectionFromId is null || _connectionPreview is null || ViewModel is null)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(GraphCanvas);
+        _connectionTargetId = FindNodeAt(point, _connectionFromId);
+        var assessment = _connectionTargetId is null
+            ? null
+            : ViewModel.CanCreateGraphConnection(_connectionFromId, _connectionTargetId);
+        _connectionPreview.Stroke = new SolidColorBrush(assessment is null
+            ? Color.FromRgb(40, 103, 214)
+            : assessment.IsValid ? Color.FromRgb(22, 163, 74) : Color.FromRgb(220, 38, 38));
+        _connectionPreview.Data = BuildCurve(CenterOf(_connectionFromId), point);
+        e.Handled = true;
+    }
+
+    private async void OnConnectorReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        var fromId = _connectionFromId;
+        var toId = _connectionTargetId;
+        e.Pointer.Capture(null);
+        if (fromId is not null && toId is not null && ViewModel is not null)
+        {
+            var assessment = ViewModel.CanCreateGraphConnection(fromId, toId);
+            var proceed = assessment.IsValid;
+            if (proceed && assessment.Kind == GraphRelationKind.Hierarchy)
+            {
+                var from = ViewModel.Projects.First(project => project.Id == fromId);
+                var to = ViewModel.Projects.First(project => project.Id == toId);
+                var parent = ViewModel.CanSetProjectParent(to, from) ? from : to;
+                var child = ReferenceEquals(parent, from) ? to : from;
+                if (!string.IsNullOrWhiteSpace(child.ParentId) &&
+                    !string.Equals(child.ParentId, parent.Id, StringComparison.OrdinalIgnoreCase) &&
+                    ConfirmHierarchyMove is not null)
+                {
+                    proceed = await ConfirmHierarchyMove(child, parent);
+                }
+            }
+
+            if (proceed)
+            {
+                ViewModel.CreateGraphConnection(fromId, toId);
+            }
+            else if (!assessment.IsValid)
+            {
+                ViewModel.StatusText = assessment.Message;
+            }
+        }
+
+        CancelConnection();
+        e.Handled = true;
+    }
+
+    private void OnConnectorCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        if (_connectionFromId is not null)
+        {
+            CancelConnection();
+        }
+    }
+
+    private string? FindNodeAt(Point point, string exceptId)
+    {
+        foreach (var pair in _nodes.Reverse())
+        {
+            if (string.Equals(pair.Key, exceptId, StringComparison.OrdinalIgnoreCase) || pair.Value.Tag is not NodeTag tag)
+            {
+                continue;
+            }
+
+            var left = Canvas.GetLeft(pair.Value);
+            var top = Canvas.GetTop(pair.Value);
+            if (new Rect(left, top, tag.Width, tag.Height).Contains(point))
+            {
+                return pair.Key;
+            }
+        }
+
+        return null;
+    }
+
+    private void CancelConnection()
+    {
+        if (_connectionPreview is not null)
+        {
+            GraphCanvas.Children.Remove(_connectionPreview);
+        }
+
+        _connectionPreview = null;
+        _connectionFromId = null;
+        _connectionTargetId = null;
+    }
+
+    private void OnEdgePressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Avalonia.Controls.Shapes.Path { Tag: GraphEdge edge })
+        {
+            return;
+        }
+
+        _selectedEdge = edge;
+        foreach (var candidate in _edges)
+        {
+            candidate.Path.StrokeThickness = ReferenceEquals(candidate, edge)
+                ? candidate.BaseThickness + 2
+                : candidate.BaseThickness;
+        }
+        e.Handled = true;
+    }
+
+    private void OnEdgeContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is not Avalonia.Controls.Shapes.Path { Tag: GraphEdge edge } path || ViewModel is null)
+        {
+            return;
+        }
+
+        _selectedEdge = edge;
+        var menu = new ContextMenu();
+        if (edge.Kind == EdgeKind.WikiLink)
+        {
+            menu.Items.Add(new MenuItem { Header = "Wikilink usuń w treści notatki", IsEnabled = false });
+        }
+        else
+        {
+            menu.Items.Add(Item("Usuń połączenie", () =>
+                ViewModel.RemoveGraphConnection(edge.FromId, edge.ToId, ToPublicKind(edge.Kind))));
+        }
+        path.ContextMenu = menu;
+        e.Handled = false;
     }
 
     private void OnNodeMoved(object? sender, PointerEventArgs e)
@@ -882,6 +1156,13 @@ public partial class GraphView : UserControl
             return;
         }
 
+        if (e.Key == Key.Escape && _connectionFromId is not null)
+        {
+            CancelConnection();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
         {
             MoveSelection(e.Key);
@@ -1098,8 +1379,19 @@ public partial class GraphView : UserControl
     {
         Hierarchy,
         ProjectMembership,
-        WikiLink
+        WikiLink,
+        SystemMembership,
+        ExplicitNoteRelation
     }
+
+    private static GraphRelationKind ToPublicKind(EdgeKind kind) => kind switch
+    {
+        EdgeKind.Hierarchy => GraphRelationKind.Hierarchy,
+        EdgeKind.ProjectMembership => GraphRelationKind.ProjectMembership,
+        EdgeKind.WikiLink => GraphRelationKind.WikiLink,
+        EdgeKind.SystemMembership => GraphRelationKind.SystemMembership,
+        _ => GraphRelationKind.ExplicitNoteRelation
+    };
 
     private sealed record GraphEdge(
         string FromId,
@@ -1130,3 +1422,11 @@ public partial class GraphView : UserControl
         public override string ToString() => Label;
     }
 }
+
+public sealed record GraphViewState(
+    double Zoom,
+    double OffsetX,
+    double OffsetY,
+    string? FocusedProjectId,
+    string? SelectedId,
+    bool SelectedIsProject);

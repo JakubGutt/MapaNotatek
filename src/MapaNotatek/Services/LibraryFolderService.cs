@@ -18,7 +18,8 @@ public static class LibraryFolderService
         "Assets",
         "History",
         "Recovery",
-        "app-state.json"
+        "app-state.json",
+        LibrarySchemaService.ManifestFileName
     };
 
     public static LibraryFolderInspection Inspect(string folder)

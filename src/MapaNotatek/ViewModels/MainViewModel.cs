@@ -42,6 +42,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly Dictionary<string, Person> _pendingSavePeople = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expandedNavigationKeys = new(StringComparer.OrdinalIgnoreCase);
     private Exception? _lastSaveError;
+    private readonly LibraryOpenResult _libraryOpen;
 
     public MainViewModel()
     {
@@ -57,10 +58,37 @@ public sealed class MainViewModel : ObservableObject
         }
 
         _startupStorageIssue ??= _stateStore.LastLoadIssue;
+        var requestedRoot = state.DataFolder ?? _stateStore.DefaultDataFolder;
+        try
+        {
+            _libraryOpen = LibrarySchemaService.Prepare(requestedRoot);
+        }
+        catch (Exception ex)
+        {
+            _lastSaveError = ex;
+            _libraryOpen = new LibraryOpenResult(
+                SafeFileStorage.NormalizeDirectory(requestedRoot), true, false,
+                SafeFileStorage.NormalizeDirectory(requestedRoot),
+                new LibraryManifest
+                {
+                    Format = "MapaNotatek-library",
+                    SchemaVersion = 1,
+                    LibraryId = Guid.NewGuid()
+                },
+                "Migracja nie powiodła się. Oryginalną bibliotekę otwarto tylko do odczytu: " + ex.Message);
+        }
         State = state;
-        Store = new MarkdownStore(State.DataFolder ?? _stateStore.DefaultDataFolder);
+        if (!string.Equals(State.DataFolder, _libraryOpen.Root, StringComparison.OrdinalIgnoreCase))
+        {
+            State.DataFolder = _libraryOpen.Root;
+            _stateStore.Save(State);
+        }
+        Store = new MarkdownStore(_libraryOpen.Root, _libraryOpen.IsReadOnly);
         _revisionStore = new RevisionStore(Store.Root);
-        Store.EnsureFolders();
+        if (!Store.IsReadOnly)
+        {
+            Store.EnsureFolders();
+        }
         _focusedProjectId = State.FocusedProjectId;
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
         _saveTimer.Tick += (_, _) =>
@@ -69,6 +97,10 @@ public sealed class MainViewModel : ObservableObject
             FlushPendingSaves();
         };
         Reload();
+        if (!string.IsNullOrWhiteSpace(_libraryOpen.Message))
+        {
+            StatusText = _libraryOpen.Message;
+        }
     }
 
     public MarkdownStore Store { get; }
@@ -89,6 +121,7 @@ public sealed class MainViewModel : ObservableObject
     public event Action? PeopleChanged;
     public event Action? EditorChanged;
     public event Action? EditorOpenRequested;
+    public event Action? NavigationStarting;
     public event Action? SelectionChanged;
     public event Action<string>? FocusNodeRequested;
 
@@ -164,6 +197,9 @@ public sealed class MainViewModel : ObservableObject
     public string ThemeName => ApplicationThemeName();
 
     public string DataFolder => Store.Root;
+    public bool IsLibraryReadOnly => Store.IsReadOnly;
+    public int LibrarySchemaVersion => _libraryOpen.Manifest.SchemaVersion;
+    public string? LibrarySafetyMessage => _libraryOpen.Message;
 
     public bool HasPendingSaves =>
         _pendingSaveNotes.Count > 0 || _pendingSaveProjects.Count > 0 || _pendingSavePeople.Count > 0;
@@ -233,6 +269,11 @@ public sealed class MainViewModel : ObservableObject
         }
 
         var project = Store.CreateProject(itemType.DefaultName(), actualParentId, itemType);
+        if (parent?.ItemType == ProjectItemType.System && SupportsSystemMembership(project))
+        {
+            project.SystemIds.Add(parent.Id);
+            Store.SaveProject(project);
+        }
         Projects.Add(project);
         PlaceNewNode(project.Id, x, y, preferNearParent: actualParentId);
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
@@ -461,6 +502,10 @@ public sealed class MainViewModel : ObservableObject
 
     public void SelectProject(Project project, bool openEditor, bool focusGraph, bool filterToProject = false)
     {
+        if (openEditor)
+        {
+            NavigationStarting?.Invoke();
+        }
         FlushPendingSaves();
         _selectedProjectId = project.Id;
         _selectedNoteId = null;
@@ -492,6 +537,10 @@ public sealed class MainViewModel : ObservableObject
 
     public void SelectNote(Note note, bool openEditor, bool focusGraph)
     {
+        if (openEditor)
+        {
+            NavigationStarting?.Invoke();
+        }
         FlushPendingSaves();
         _selectedNoteId = note.Id;
         _selectedProjectId = null;
@@ -665,6 +714,232 @@ public sealed class MainViewModel : ObservableObject
         PeopleChanged?.Invoke();
     }
 
+    public IReadOnlyList<Project> AvailableSystems => Projects
+        .Where(project => project.ItemType == ProjectItemType.System)
+        .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+        .ToList();
+
+    public static bool SupportsSystemMembership(Project project) =>
+        project.ItemType is ProjectItemType.Product or ProjectItemType.Subsystem or ProjectItemType.Component;
+
+    public void UpdateProjectSystems(Project project, IEnumerable<string> systemIds)
+    {
+        if (!SupportsSystemMembership(project))
+        {
+            return;
+        }
+
+        var valid = systemIds
+            .Where(id => Projects.Any(system =>
+                system.ItemType == ProjectItemType.System &&
+                string.Equals(system.Id, id, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var parentIsRemovedSystem = project.ParentId is not null &&
+            Projects.Any(system => system.ItemType == ProjectItemType.System &&
+                                   string.Equals(system.Id, project.ParentId, StringComparison.OrdinalIgnoreCase)) &&
+            !valid.Contains(project.ParentId, StringComparer.OrdinalIgnoreCase);
+        if (project.SystemIds.SequenceEqual(valid, StringComparer.OrdinalIgnoreCase) && !parentIsRemovedSystem)
+        {
+            return;
+        }
+
+        project.SystemIds = valid;
+        if (parentIsRemovedSystem)
+        {
+            project.ParentId = null;
+        }
+        ScheduleSaveProject(project);
+        RefreshVisible();
+        GraphChanged?.Invoke();
+        EditorChanged?.Invoke();
+    }
+
+    public void AddProjectToSystem(Project project, Project system)
+    {
+        if (!SupportsSystemMembership(project) || system.ItemType != ProjectItemType.System)
+        {
+            StatusText = "Ten typ elementu nie może być przypisany do systemu";
+            return;
+        }
+
+        if (project.SystemIds.Contains(system.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            StatusText = $"„{project.Name}” już należy do systemu „{system.Name}”";
+            return;
+        }
+
+        project.SystemIds.Add(system.Id);
+        ScheduleSaveProject(project);
+        RefreshVisible();
+        GraphChanged?.Invoke();
+        EditorChanged?.Invoke();
+        StatusText = $"Dodano „{project.Name}” do systemu „{system.Name}”";
+    }
+
+    public void RemoveProjectFromSystem(Project project, Project system)
+    {
+        var removed = project.SystemIds.RemoveAll(id =>
+            string.Equals(id, system.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (string.Equals(project.ParentId, system.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            project.ParentId = null;
+            removed = true;
+        }
+        if (removed)
+        {
+            ScheduleSaveProject(project);
+            RefreshVisible();
+            GraphChanged?.Invoke();
+            EditorChanged?.Invoke();
+            StatusText = $"Usunięto przypisanie do systemu „{system.Name}”";
+        }
+    }
+
+    public GraphConnectionResult CanCreateGraphConnection(string fromId, string toId)
+    {
+        if (string.Equals(fromId, toId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new(false, "Nie można połączyć elementu z nim samym");
+        }
+
+        var fromProject = Projects.FirstOrDefault(project => project.Id == fromId);
+        var toProject = Projects.FirstOrDefault(project => project.Id == toId);
+        var fromNote = Notes.FirstOrDefault(note => note.Id == fromId);
+        var toNote = Notes.FirstOrDefault(note => note.Id == toId);
+
+        if (fromNote is not null && toNote is not null)
+        {
+            return new(true, "Powiąż notatki", GraphRelationKind.ExplicitNoteRelation);
+        }
+
+        if ((fromNote is not null && toProject is not null) ||
+            (toNote is not null && fromProject is not null))
+        {
+            return new(true, "Przypisz notatkę do elementu", GraphRelationKind.ProjectMembership);
+        }
+
+        if (fromProject is null || toProject is null)
+        {
+            return new(false, "Nieobsługiwany rodzaj połączenia");
+        }
+
+        if (fromProject.ItemType == ProjectItemType.System && SupportsSystemMembership(toProject) ||
+            toProject.ItemType == ProjectItemType.System && SupportsSystemMembership(fromProject))
+        {
+            return new(true, "Przypisz element do systemu", GraphRelationKind.SystemMembership);
+        }
+
+        if (CanSetProjectParent(toProject, fromProject) || CanSetProjectParent(fromProject, toProject))
+        {
+            return new(true, "Utwórz relację nadrzędną", GraphRelationKind.Hierarchy);
+        }
+
+        return new(false, "Te typy elementów nie mogą tworzyć relacji hierarchicznej");
+    }
+
+    public GraphConnectionResult CreateGraphConnection(string fromId, string toId)
+    {
+        var assessment = CanCreateGraphConnection(fromId, toId);
+        if (!assessment.IsValid)
+        {
+            StatusText = assessment.Message;
+            return assessment;
+        }
+
+        var fromProject = Projects.FirstOrDefault(project => project.Id == fromId);
+        var toProject = Projects.FirstOrDefault(project => project.Id == toId);
+        var fromNote = Notes.FirstOrDefault(note => note.Id == fromId);
+        var toNote = Notes.FirstOrDefault(note => note.Id == toId);
+
+        switch (assessment.Kind)
+        {
+            case GraphRelationKind.ExplicitNoteRelation when fromNote is not null && toNote is not null:
+                if (!fromNote.RelatedNoteIds.Contains(toNote.Id, StringComparer.OrdinalIgnoreCase) &&
+                    !toNote.RelatedNoteIds.Contains(fromNote.Id, StringComparer.OrdinalIgnoreCase))
+                {
+                    fromNote.RelatedNoteIds.Add(toNote.Id);
+                    ScheduleSaveNote(fromNote);
+                    GraphChanged?.Invoke();
+                }
+                StatusText = $"Powiązano notatki „{fromNote.Title}” i „{toNote.Title}”";
+                break;
+            case GraphRelationKind.ProjectMembership:
+                var note = fromNote ?? toNote!;
+                var project = fromProject ?? toProject!;
+                AttachNoteToProject(note, project);
+                break;
+            case GraphRelationKind.SystemMembership:
+                var system = fromProject!.ItemType == ProjectItemType.System ? fromProject : toProject!;
+                var element = ReferenceEquals(system, fromProject) ? toProject! : fromProject;
+                AddProjectToSystem(element, system);
+                break;
+            case GraphRelationKind.Hierarchy:
+                if (CanSetProjectParent(toProject!, fromProject!))
+                {
+                    SetProjectParent(toProject!, fromProject!.Id);
+                }
+                else
+                {
+                    SetProjectParent(fromProject!, toProject!.Id);
+                }
+                break;
+        }
+
+        return assessment;
+    }
+
+    public void RemoveGraphConnection(string fromId, string toId, GraphRelationKind kind)
+    {
+        var fromProject = Projects.FirstOrDefault(project => project.Id == fromId);
+        var toProject = Projects.FirstOrDefault(project => project.Id == toId);
+        var fromNote = Notes.FirstOrDefault(note => note.Id == fromId);
+        var toNote = Notes.FirstOrDefault(note => note.Id == toId);
+
+        switch (kind)
+        {
+            case GraphRelationKind.SystemMembership:
+                var system = fromProject?.ItemType == ProjectItemType.System ? fromProject : toProject;
+                var element = ReferenceEquals(system, fromProject) ? toProject : fromProject;
+                if (system is not null && element is not null)
+                {
+                    RemoveProjectFromSystem(element, system);
+                }
+                break;
+            case GraphRelationKind.ProjectMembership:
+                var note = fromNote ?? toNote;
+                var project = fromProject ?? toProject;
+                if (note is not null && project is not null &&
+                    note.Tags.RemoveAll(tag => string.Equals(tag, project.Slug, StringComparison.OrdinalIgnoreCase)) > 0)
+                {
+                    ScheduleSaveNote(note);
+                    RefreshVisible();
+                    RefreshRelated();
+                    GraphChanged?.Invoke();
+                }
+                break;
+            case GraphRelationKind.ExplicitNoteRelation when fromNote is not null && toNote is not null:
+                var changed = fromNote.RelatedNoteIds.RemoveAll(id => string.Equals(id, toNote.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+                changed |= toNote.RelatedNoteIds.RemoveAll(id => string.Equals(id, fromNote.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+                if (changed)
+                {
+                    ScheduleSaveNote(fromNote);
+                    ScheduleSaveNote(toNote);
+                    GraphChanged?.Invoke();
+                }
+                break;
+            case GraphRelationKind.Hierarchy:
+                var child = string.Equals(fromProject?.ParentId, toProject?.Id, StringComparison.OrdinalIgnoreCase)
+                    ? fromProject
+                    : toProject;
+                if (child is not null)
+                {
+                    SetProjectParent(child, null);
+                }
+                break;
+        }
+    }
+
     public void NotifyPeopleAssignmentsChanged() => PeopleChanged?.Invoke();
 
     public void SaveNow()
@@ -674,6 +949,12 @@ public sealed class MainViewModel : ObservableObject
         {
             StatusText = SavedStatus();
         }
+    }
+
+    public void SaveBackupFolder(string? folder)
+    {
+        State.BackupFolder = string.IsNullOrWhiteSpace(folder) ? null : Path.GetFullPath(folder);
+        TrySaveState();
     }
 
     public IReadOnlyList<RevisionInfo> GetSelectedNoteRevisions()
@@ -1881,7 +2162,83 @@ public sealed class MainViewModel : ObservableObject
                 node.Children.Add(new NavigationTreeNode { Note = note });
             }
 
+            if (project.ItemType == ProjectItemType.System)
+            {
+                AddAdditionalSystemMembers(node, project);
+            }
+
             return node;
+        }
+
+        void AddAdditionalSystemMembers(NavigationTreeNode systemNode, Project system)
+        {
+            var memberIds = visibleProjects
+                .Where(candidate => candidate.SystemIds.Contains(system.Id, StringComparer.OrdinalIgnoreCase))
+                .Select(candidate => candidate.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var structurallyInside = visibleProjects
+                .Where(candidate => IsBelowSystem(candidate, system.Id))
+                .Select(candidate => candidate.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            NavigationTreeNode BuildMembershipBranch(Project member, HashSet<string> path)
+            {
+                var alias = new NavigationTreeNode
+                {
+                    Project = member,
+                    IsExpanded = _expandedNavigationKeys.Contains("project:" + member.Id)
+                };
+                if (!path.Add(member.Id))
+                {
+                    return alias;
+                }
+
+                foreach (var child in SortTreeChildren(visibleProjects.Where(candidate =>
+                             memberIds.Contains(candidate.Id) &&
+                             string.Equals(candidate.ParentId, member.Id, StringComparison.OrdinalIgnoreCase))))
+                {
+                    alias.Children.Add(BuildMembershipBranch(child, path));
+                }
+
+                foreach (var note in visibleNotes.Where(note => LayoutService.NoteLinksTo(note, member)))
+                {
+                    alias.Children.Add(new NavigationTreeNode { Note = note });
+                }
+
+                path.Remove(member.Id);
+                return alias;
+            }
+
+            var roots = visibleProjects.Where(member =>
+                memberIds.Contains(member.Id) &&
+                !structurallyInside.Contains(member.Id) &&
+                (string.IsNullOrWhiteSpace(member.ParentId) || !memberIds.Contains(member.ParentId)));
+            foreach (var root in SortTreeChildren(roots))
+            {
+                systemNode.Children.Add(BuildMembershipBranch(root, new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+            }
+        }
+
+        bool IsBelowSystem(Project project, string systemId)
+        {
+            var current = project;
+            var guard = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (!string.IsNullOrWhiteSpace(current.ParentId) && guard.Add(current.Id))
+            {
+                if (string.Equals(current.ParentId, systemId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                current = visibleProjects.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, current.ParentId, StringComparison.OrdinalIgnoreCase)) ?? current;
+                if (string.Equals(current.Id, project.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+            }
+
+            return false;
         }
 
         foreach (var root in SortTreeChildren(byParent[string.Empty]))
@@ -2090,7 +2447,13 @@ public sealed class MainViewModel : ObservableObject
         _redo.Clear();
     }
 
-    private void SaveState() => _stateStore.Save(State);
+    private void SaveState()
+    {
+        if (!Store.IsReadOnly)
+        {
+            _stateStore.Save(State);
+        }
+    }
 
     private bool TrySaveState()
     {
@@ -2108,6 +2471,10 @@ public sealed class MainViewModel : ObservableObject
 
     private void SaveNoteWithHistory(Note note)
     {
+        if (Store.IsReadOnly)
+        {
+            throw new InvalidOperationException("Biblioteka jest otwarta tylko do odczytu.");
+        }
         SanitizePeopleAssignments(note.People, note.Checklist);
         _revisionStore.CaptureExisting("Notes", note.Id, note.FilePath);
         Store.SaveNote(note);
@@ -2115,6 +2482,10 @@ public sealed class MainViewModel : ObservableObject
 
     private void SaveProjectWithHistory(Project project)
     {
+        if (Store.IsReadOnly)
+        {
+            throw new InvalidOperationException("Biblioteka jest otwarta tylko do odczytu.");
+        }
         SanitizePeopleAssignments(project.People, project.Checklist);
         var oldSlug = project.Slug;
         var desired = SlugHelper.FromName(project.Name);

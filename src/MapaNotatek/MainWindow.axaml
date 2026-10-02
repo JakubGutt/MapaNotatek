@@ -275,6 +275,19 @@
                         Padding="14,8">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button x:Name="BackButton"
+                                    Content="←"
+                                    MinWidth="34"
+                                    IsEnabled="False"
+                                    ToolTip.Tip="Wstecz (Alt+←)"
+                                    Click="OnNavigateBack" />
+                            <Button x:Name="ForwardButton"
+                                    Content="→"
+                                    MinWidth="34"
+                                    IsEnabled="False"
+                                    ToolTip.Tip="Dalej (Alt+→)"
+                                    Click="OnNavigateForward" />
+                            <Border Width="1" Margin="4,2" Background="{DynamicResource BorderSubtleBrush}" />
                             <RadioButton x:Name="EditorRadio"
                                          Classes="WorkspaceTab"
                                          Content="Edytor"
@@ -287,9 +300,25 @@
                                          IsCheckedChanged="OnNotesView" />
                             <RadioButton x:Name="TasksRadio"
                                          Classes="WorkspaceTab"
-                                         Content="Zadania"
                                          GroupName="WorkspaceView"
-                                         IsCheckedChanged="OnTasksView" />
+                                         IsCheckedChanged="OnTasksView">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <TextBlock Text="Zadania" VerticalAlignment="Center" />
+                                    <Border MinWidth="22"
+                                            Height="22"
+                                            Padding="6,0"
+                                            CornerRadius="11"
+                                            Background="{DynamicResource SurfaceMutedBrush}">
+                                        <TextBlock x:Name="TasksTabCountText"
+                                                   Text="0"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   AutomationProperties.LiveSetting="Polite" />
+                                    </Border>
+                                </StackPanel>
+                            </RadioButton>
                             <RadioButton x:Name="PeopleRadio"
                                          Classes="WorkspaceTab"
                                          Content="Osoby"

@@ -22,6 +22,7 @@ public static class BackupService
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+    internal static Action<string>? RotationStageHook { get; set; }
 
     /// <summary>
     /// Creates a verified snapshot of application-owned data. The destination only appears
@@ -87,6 +88,111 @@ public static class BackupService
         {
             TryDeleteStaging(staging);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Replaces Current only after a new verified copy exists. The old Current becomes
+    /// Previous and at least one validated generation survives every recoverable failure.
+    /// </summary>
+    public static void UpdateRotatingCopy(string sourceFolder, string backupRoot)
+    {
+        var source = NormalizeExistingDirectory(sourceFolder);
+        var root = Path.GetFullPath(backupRoot);
+        EnsureDestinationIsOutsideSource(source, root);
+        var reverse = Path.GetRelativePath(root, source);
+        if (reverse == "." || (!reverse.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) && reverse != ".."))
+        {
+            throw new IOException("Folder danych nie może znajdować się wewnątrz miejsca kopii.");
+        }
+
+        Directory.CreateDirectory(root);
+        if (IsReparsePoint(root))
+        {
+            throw new IOException("Miejsce kopii nie może być dowiązaniem symbolicznym.");
+        }
+
+        RecoverInterruptedRotation(root);
+        var current = Path.Combine(root, "Current");
+        var previous = Path.Combine(root, "Previous");
+        var incoming = Path.Combine(root, $".Incoming-{Guid.NewGuid():N}");
+        var retired = Path.Combine(root, $".Previous-retired-{Guid.NewGuid():N}");
+        ExportCopy(source, incoming);
+        var incomingValidation = Validate(incoming);
+        if (!incomingValidation.IsValid)
+        {
+            throw new InvalidDataException("Nowa kopia nie przeszła weryfikacji: " + string.Join("; ", incomingValidation.Errors));
+        }
+        RotationStageHook?.Invoke("incoming-verified");
+
+        try
+        {
+            if (Directory.Exists(previous))
+            {
+                Directory.Move(previous, retired);
+            }
+            RotationStageHook?.Invoke("previous-retired");
+            if (Directory.Exists(current))
+            {
+                Directory.Move(current, previous);
+            }
+            RotationStageHook?.Invoke("current-to-previous");
+            Directory.Move(incoming, current);
+            RotationStageHook?.Invoke("incoming-to-current");
+            var finalValidation = Validate(current);
+            if (!finalValidation.IsValid)
+            {
+                throw new InvalidDataException("Kopia Current nie przeszła końcowej weryfikacji: " + string.Join("; ", finalValidation.Errors));
+            }
+            if (Directory.Exists(retired))
+            {
+                Directory.Delete(retired, recursive: true);
+            }
+        }
+        catch
+        {
+            // Restore a named valid generation when the process stopped between renames.
+            RecoverInterruptedRotation(root);
+            throw;
+        }
+    }
+
+    public static void RecoverInterruptedRotation(string backupRoot)
+    {
+        if (!Directory.Exists(backupRoot))
+        {
+            return;
+        }
+
+        var root = NormalizeExistingDirectory(backupRoot);
+        var current = Path.Combine(root, "Current");
+        var previous = Path.Combine(root, "Previous");
+        if (Directory.Exists(current) && !Validate(current).IsValid)
+        {
+            Directory.Move(current, Path.Combine(root, $".Current-invalid-{Guid.NewGuid():N}"));
+        }
+        if (Directory.Exists(current) && Validate(current).IsValid)
+        {
+            return;
+        }
+        if (Directory.Exists(previous) && Validate(previous).IsValid)
+        {
+            return;
+        }
+
+        var retired = Directory.EnumerateDirectories(root, ".Previous-retired-*")
+            .FirstOrDefault(candidate => Validate(candidate).IsValid);
+        if (retired is not null && !Directory.Exists(previous))
+        {
+            Directory.Move(retired, previous);
+            return;
+        }
+
+        var incoming = Directory.EnumerateDirectories(root, ".Incoming-*")
+            .FirstOrDefault(candidate => Validate(candidate).IsValid);
+        if (incoming is not null && !Directory.Exists(current))
+        {
+            Directory.Move(incoming, current);
         }
     }
 
@@ -288,6 +394,12 @@ public static class BackupService
         if (File.Exists(statePath))
         {
             yield return "app-state.json";
+        }
+
+        var libraryManifest = Path.Combine(source, LibrarySchemaService.ManifestFileName);
+        if (File.Exists(libraryManifest))
+        {
+            yield return LibrarySchemaService.ManifestFileName;
         }
 
         foreach (var directoryName in DataDirectories)

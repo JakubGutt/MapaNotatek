@@ -10,6 +10,7 @@ public sealed class AppState
     public double EditorFontSize { get; set; } = 16;
     public bool SidebarVisible { get; set; } = true;
     public bool EditorDetailsVisible { get; set; } = true;
+    public string? BackupFolder { get; set; }
     public List<string> PinnedIds { get; set; } = [];
     public List<string> RecentIds { get; set; } = [];
 }
