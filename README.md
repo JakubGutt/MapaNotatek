@@ -1,5 +1,7 @@
 # MapaNotatek
 
+<img src="assets/branding/mapanotatek-logo-canvas-v4.png" alt="Logo MapaNotatek" width="180">
+
 Lokalna aplikacja desktopowa do pisania notatek, prowadzenia projektów i łączenia wiedzy. Głównym miejscem pracy jest pełnostronicowy edytor; graf pozostaje dodatkowym widokiem do odkrywania powiązań.
 
 Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuje internetu ani zainstalowanego środowiska .NET.

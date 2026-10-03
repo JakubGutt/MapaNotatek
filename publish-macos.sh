@@ -51,6 +51,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp -R "$publish_dir"/. "$app/Contents/MacOS/"
 chmod +x "$app/Contents/MacOS/MapaNotatek"
 cp "$root/packaging/macos/Info.plist" "$app/Contents/Info.plist"
+cp "$root/packaging/macos/MapaNotatek.icns" "$app/Contents/Resources/MapaNotatek.icns"
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "${version%%-*}" "$app/Contents/Info.plist"
 
