@@ -14,7 +14,8 @@ public static class BackupService
         "Trash",
         "Assets",
         "History",
-        "Recovery"
+        "Recovery",
+        "Imports"
     ];
 
     private static readonly JsonSerializerOptions JsonOptions = new()

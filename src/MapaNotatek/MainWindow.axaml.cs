@@ -315,6 +315,7 @@ public partial class MainWindow : Window
             _peopleControl.Refresh();
             _graphControl.Refresh();
             _graphControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
+            _graphControl.ExportSystemRequested += project => _ = ExportSystemAsync(project);
             _graphControl.ConfirmHierarchyMove = ConfirmHierarchyMoveAsync;
             _editorControl.DeleteProjectRequested += project => _ = ConfirmDeleteProjectAsync(project);
             _editorControl.NewProjectNoteRequested += CreateNote;
@@ -853,6 +854,11 @@ public partial class MainWindow : Window
                 _vm.TogglePinSelected();
             }));
             menu.Items.Add(MenuAction("Przenieś do root", () => _vm.SetProjectParent(p, null)));
+            if (p.ItemType == ProjectItemType.System)
+            {
+                menu.Items.Add(new Separator());
+                menu.Items.Add(MenuAction("Eksportuj system…", () => _ = ExportSystemAsync(p)));
+            }
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuAction($"Usuń: {p.ItemType.Label().ToLowerInvariant()}…",
                 () => _ = ConfirmDeleteProjectAsync(p)));
@@ -1146,6 +1152,222 @@ public partial class MainWindow : Window
     }
 
     private async void OnExportBackup(object? sender, RoutedEventArgs e) => await ExportBackupAsync();
+
+    private async void OnExportSystem(object? sender, RoutedEventArgs e) => await ExportSystemAsync();
+
+    private async Task ExportSystemAsync(Project? system = null)
+    {
+        system ??= _vm.SelectedProject ?? (LibraryTree.SelectedItem as NavigationTreeNode)?.Project;
+        if (system is null && _vm.SelectedGraphIsProject && _vm.SelectedGraphId is not null)
+        {
+            system = _vm.Projects.FirstOrDefault(project => project.Id == _vm.SelectedGraphId);
+        }
+
+        if (system?.ItemType != ProjectItemType.System)
+        {
+            await ShowMessageAsync("Wybierz system", "Zaznacz system w drzewie albo na grafie, a następnie ponów eksport.");
+            return;
+        }
+
+        if (!_vm.FlushPendingSaves())
+        {
+            await ShowMessageAsync("Nie można utworzyć paczki", "Najpierw zapisz wszystkie bieżące zmiany.");
+            return;
+        }
+
+        var safeName = SlugHelper.FromName(system.Name);
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Eksportuj system jako propozycję zmian",
+            SuggestedFileName = $"{safeName}-{DateTime.Now:yyyyMMdd-HHmm}{SystemTransferPackageService.Extension}",
+            DefaultExtension = SystemTransferPackageService.Extension.TrimStart('.'),
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Pakiet MapaNotatek")
+                {
+                    Patterns = [$"*{SystemTransferPackageService.Extension}"],
+                    MimeTypes = ["application/zip"]
+                }
+            ]
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _vm.StatusText = "Tworzenie i weryfikowanie paczki systemu…";
+            var systemId = system.Id;
+            var state = _vm.State;
+            var path = file.Path.LocalPath;
+            await Task.Run(() => SystemTransferPackageService.Export(_vm.DataFolder, systemId, path, state));
+            _vm.StatusText = $"Utworzono paczkę systemu: {path}";
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się wyeksportować systemu: " + ex.Message;
+            await ShowMessageAsync("Nie utworzono paczki", ex.Message);
+        }
+    }
+
+    private async void OnOpenMergeProposal(object? sender, RoutedEventArgs e) => await OpenMergeProposalAsync();
+
+    private async Task OpenMergeProposalAsync()
+    {
+        if (!_vm.FlushPendingSaves())
+        {
+            await ShowMessageAsync("Nie można otworzyć propozycji", "Najpierw zapisz wszystkie bieżące zmiany.");
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Otwórz propozycję scalenia",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Pakiet MapaNotatek")
+                {
+                    Patterns = [$"*{SystemTransferPackageService.Extension}"],
+                    MimeTypes = ["application/zip"]
+                }
+            ]
+        });
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _vm.StatusText = "Sprawdzanie paczki i porównywanie zmian…";
+            var path = files[0].Path.LocalPath;
+            var proposal = await Task.Run(() => SystemMergeService.CreateProposal(_vm.DataFolder, path));
+            var dialog = new MergeReviewDialog(proposal);
+            var accepted = await dialog.ShowDialog<bool>(this);
+            if (!accepted || !dialog.Accepted)
+            {
+                _vm.StatusText = "Propozycja scalenia została zamknięta bez zmian";
+                return;
+            }
+
+            _vm.StatusText = "Scalanie na bezpiecznej kopii biblioteki…";
+            var result = await Task.Run(() => SystemMergeService.Apply(_vm.DataFolder, proposal));
+            _vm.ChangeDataFolder(_vm.DataFolder, loadLibraryState: true);
+            _graphControl.Refresh();
+            _notesControl.Bind();
+            _tasksControl.Bind();
+            _peopleControl.Refresh();
+            UpdateEmptyState();
+            _vm.StatusText = $"Scalono: +{result.Added}, zmieniono {result.Modified}, usunięto {result.Deleted}, pominięto {result.Skipped}";
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Scalenie nie zostało wykonane: " + ex.Message;
+            await ShowMessageAsync("Nie udało się scalić zmian", ex.Message);
+        }
+    }
+
+    private async void OnMergeHistory(object? sender, RoutedEventArgs e) => await ShowMergeHistoryAsync();
+
+    private async Task ShowMergeHistoryAsync()
+    {
+        var history = SystemMergeService.ListHistory(_vm.DataFolder);
+        var list = new ListBox
+        {
+            ItemsSource = history.Count == 0
+                ? [new MergeHistoryListItem(null, "Brak wykonanych scaleń.")]
+                : history.Select(item => new MergeHistoryListItem(
+                    item,
+                    $"{item.MergedUtc.ToLocalTime():g}  •  {item.SourceSystemName}  •  +{item.Added} ~{item.Modified} −{item.Deleted}")).ToList()
+        };
+        list.SelectedIndex = history.Count > 0 ? 0 : -1;
+        var close = new Button { Content = "Zamknij", MinWidth = 90, IsDefault = true };
+        var revert = new Button { Content = "Przygotuj cofnięcie…", MinWidth = 170, IsEnabled = history.Count > 0 };
+        var dialog = new Window
+        {
+            Title = "Historia scaleń",
+            Width = 760,
+            Height = 440,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(14),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        Orientation = Avalonia.Layout.Orientation.Horizontal,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 12, 0, 0),
+                        Children = { revert, close },
+                        [DockPanel.DockProperty] = Dock.Bottom
+                    },
+                    list
+                }
+            }
+        };
+        list.SelectionChanged += (_, _) =>
+            revert.IsEnabled = (list.SelectedItem as MergeHistoryListItem)?.Entry is not null;
+        close.Click += (_, _) => dialog.Close();
+        revert.Click += (_, _) =>
+        {
+            if ((list.SelectedItem as MergeHistoryListItem)?.Entry is not { } entry)
+            {
+                return;
+            }
+            dialog.Close(entry);
+        };
+        var selected = await dialog.ShowDialog<MergeHistoryEntry?>(this);
+        if (selected is not null)
+        {
+            await RevertMergeAsync(selected);
+        }
+    }
+
+    private async Task RevertMergeAsync(MergeHistoryEntry entry)
+    {
+        try
+        {
+            _vm.StatusText = "Przygotowywanie odwrotnej propozycji zmian…";
+            var proposal = await Task.Run(() => SystemMergeService.CreateRevertProposal(_vm.DataFolder, entry.MergeId));
+            if (proposal.Changes.Count == 0)
+            {
+                await ShowMessageAsync("Brak zmian do cofnięcia", "Stan biblioteki jest już zgodny ze stanem sprzed tego scalenia.");
+                return;
+            }
+
+            var review = new MergeReviewDialog(proposal);
+            var accepted = await review.ShowDialog<bool>(this);
+            if (!accepted || !review.Accepted)
+            {
+                _vm.StatusText = "Cofnięcie zostało anulowane";
+                return;
+            }
+
+            _vm.StatusText = "Cofanie scalenia na bezpiecznej kopii…";
+            var result = await Task.Run(() => SystemMergeService.ApplyRevert(_vm.DataFolder, proposal));
+            _vm.ChangeDataFolder(_vm.DataFolder, loadLibraryState: true);
+            _graphControl.Refresh();
+            _notesControl.Bind();
+            _tasksControl.Bind();
+            _peopleControl.Refresh();
+            UpdateEmptyState();
+            _vm.StatusText = $"Cofnięto scalenie: +{result.Added}, zmieniono {result.Modified}, usunięto {result.Deleted}";
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = "Nie udało się cofnąć scalenia: " + ex.Message;
+            await ShowMessageAsync("Nie cofnięto scalenia", ex.Message);
+        }
+    }
+
+    private sealed record MergeHistoryListItem(MergeHistoryEntry? Entry, string Text)
+    {
+        public override string ToString() => Text;
+    }
 
     private async Task ExportBackupAsync()
     {
@@ -1788,6 +2010,7 @@ public partial class MainWindow : Window
     private async Task ShowSettingsAsync()
     {
         var panel = new SettingsDialog { ViewModel = _vm, HostWindow = this };
+        panel.SetShortcuts(BuildShortcutHelp());
         panel.Bind();
         var dialog = new Window
         {
@@ -1836,7 +2059,7 @@ public partial class MainWindow : Window
                         Margin = new Thickness(0, 12, 0, 0),
                         [DockPanel.DockProperty] = Dock.Bottom
                     },
-                    new ShortcutsDialog()
+                    BuildShortcutsDialog()
                 }
             }
         };
@@ -1855,7 +2078,8 @@ public partial class MainWindow : Window
 
     private IEnumerable<AppCommand> BuildCommands() =>
     [
-        new() { Name = "Nowa notatka", Shortcut = PlatformKeys.Chord("N"), Run = CreateNote },
+        new() { Name = "Nowa notatka", Shortcut = PlatformKeys.Chord("N"), Run = CreateNote,
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.N) },
         new() { Name = "Szablon: spotkanie", Shortcut = "", Run = () => CreateNoteFromTemplate("meeting") },
         new() { Name = "Szablon: decyzja", Shortcut = "", Run = () => CreateNoteFromTemplate("decision") },
         new() { Name = "Szablon: plan projektu", Shortcut = "", Run = () => CreateNoteFromTemplate("project-brief") },
@@ -1865,27 +2089,112 @@ public partial class MainWindow : Window
         new() { Name = "Nowy produkt", Shortcut = "", Run = () => CreateProject(ProjectItemType.Product) },
         new() { Name = "Nowy podsystem", Shortcut = "", Run = () => CreateProject(ProjectItemType.Subsystem) },
         new() { Name = "Nowy komponent", Shortcut = "", Run = () => CreateProject(ProjectItemType.Component) },
-        new() { Name = "Nowy projekt ogólny", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject },
+        new() { Name = "Nowy projekt ogólny", Shortcut = PlatformKeys.ChordShift("N"), Run = CreateProject,
+            MatchesShortcut = e => MatchesCommand(e, shift: true, Key.N) },
         new() { Name = "Nowy folder", Shortcut = "", Run = () => CreateProject(ProjectItemType.Folder) },
         new() { Name = "Nowa osoba", Shortcut = "", Run = () => OnNewPerson(null, new RoutedEventArgs()) },
-        new() { Name = "Zapisz", Shortcut = PlatformKeys.Chord("S"), Run = _vm.SaveNow },
-        new() { Name = "Znajdź w dokumencie", Shortcut = PlatformKeys.Chord("F"), Run = FindInDocument },
-        new() { Name = "Szukaj w całej bibliotece", Shortcut = PlatformKeys.ChordShift("F"), Run = FocusSearch },
-        new() { Name = "Widok grafu", Shortcut = PlatformKeys.Chord("1"), Run = () => ShowCenter(CenterViewKind.Graph) },
-        new() { Name = "Lista notatek", Shortcut = PlatformKeys.Chord("2"), Run = () => ShowCenter(CenterViewKind.Notes) },
-        new() { Name = "Otwarte zadania", Shortcut = PlatformKeys.Chord("3"), Run = () => ShowCenter(CenterViewKind.Tasks) },
-        new() { Name = "Osoby", Shortcut = PlatformKeys.Chord("4"), Run = () => ShowCenter(CenterViewKind.People) },
+        new() { Name = "Zapisz", Shortcut = PlatformKeys.Chord("S"), Run = _vm.SaveNow,
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.S) },
+        new() { Name = "Znajdź w dokumencie", Shortcut = PlatformKeys.Chord("F"), Run = FindInDocument,
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.F) },
+        new() { Name = "Szukaj w całej bibliotece", Shortcut = PlatformKeys.ChordShift("F"), Run = FocusSearch,
+            MatchesShortcut = e => MatchesCommand(e, shift: true, Key.F) },
+        new() { Name = "Cofnij", Shortcut = PlatformKeys.Chord("Z"), Run = _vm.Undo,
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.Z), AllowWhenTyping = false },
+        new() { Name = "Ponów", Shortcut = PlatformKeys.RedoLabel, Run = _vm.Redo,
+            MatchesShortcut = MatchesRedo, AllowWhenTyping = false },
+        new() { Name = "Widok grafu", Shortcut = PlatformKeys.Chord("1"), Run = () => ShowCenter(CenterViewKind.Graph),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.D1) },
+        new() { Name = "Lista notatek", Shortcut = PlatformKeys.Chord("2"), Run = () => ShowCenter(CenterViewKind.Notes),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.D2) },
+        new() { Name = "Otwarte zadania", Shortcut = PlatformKeys.Chord("3"), Run = () => ShowCenter(CenterViewKind.Tasks),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.D3) },
+        new() { Name = "Osoby", Shortcut = PlatformKeys.Chord("4"), Run = () => ShowCenter(CenterViewKind.People),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.D4) },
         new() { Name = "Pokaż całą strukturę", Shortcut = "", Run = _vm.ShowAllProjects },
         new() { Name = "Kosz", Shortcut = "", Run = () => _ = ShowTrashAsync() },
         new() { Name = "Przypnij / odepnij", Shortcut = "", Run = _vm.TogglePinSelected },
         new() { Name = "Wyśrodkuj zaznaczenie", Shortcut = "", Run = () => OnCenterSelection(null, new RoutedEventArgs()) },
-        new() { Name = "Zamknij dokument", Shortcut = PlatformKeys.Chord("W"), Run = () => _vm.CloseEditor() },
-        new() { Name = "Ustawienia", Shortcut = PlatformKeys.Chord(","), Run = () => _ = ShowSettingsAsync() },
-        new() { Name = "Skróty klawiszowe", Shortcut = PlatformKeys.Chord("/"), Run = () => _ = ShowShortcutsAsync() },
+        new() { Name = "Powiększ graf", Shortcut = PlatformKeys.Chord("+"), Run = () => ChangeZoom(0.1),
+            MatchesShortcut = MatchesZoomIn },
+        new() { Name = "Pomniejsz graf", Shortcut = PlatformKeys.Chord("-"), Run = () => ChangeZoom(-0.1),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.OemMinus, Key.Subtract) },
+        new() { Name = "Domyślne powiększenie", Shortcut = PlatformKeys.Chord("0"), Run = () => OnZoomReset(this, new RoutedEventArgs()),
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.D0) },
+        new() { Name = "Zamknij dokument", Shortcut = PlatformKeys.Chord("W"), Run = CloseDocument,
+            MatchesShortcut = e => MatchesCommand(e, shift: false, Key.W) },
+        new() { Name = "Lista poleceń", Shortcut = PlatformKeys.ChordShift("P"), Run = () => _ = ShowCommandsAsync(),
+            MatchesShortcut = e => MatchesCommand(e, shift: true, Key.P) },
+        new() { Name = "Ustawienia", Shortcut = PlatformKeys.Chord(","), Run = () => _ = ShowSettingsAsync(),
+            MatchesShortcut = MatchesSettings },
+        new() { Name = "Skróty klawiszowe", Shortcut = PlatformKeys.Chord("/"), Run = () => _ = ShowShortcutsAsync(),
+            MatchesShortcut = MatchesShortcutHelp },
         new() { Name = "Eksportuj kopię", Shortcut = "", Run = () => _ = ExportBackupAsync() },
+        new() { Name = "Eksportuj zaznaczony system", Shortcut = "", Run = () => _ = ExportSystemAsync() },
+        new() { Name = "Otwórz propozycję scalenia", Shortcut = "", Run = () => _ = OpenMergeProposalAsync() },
+        new() { Name = "Historia scaleń", Shortcut = "", Run = () => _ = ShowMergeHistoryAsync() },
         new() { Name = "Usuń element struktury…", Shortcut = "", Run = () => OnDeleteProject(null, new RoutedEventArgs()) },
         new() { Name = "Przenieś notatkę do kosza", Shortcut = PlatformKeys.TrashLabel, Run = _vm.TrashSelectedNote }
     ];
+
+    private ShortcutsDialog BuildShortcutsDialog()
+    {
+        var dialog = new ShortcutsDialog();
+        dialog.SetShortcuts(BuildShortcutHelp());
+        return dialog;
+    }
+
+    private IReadOnlyList<ShortcutInfo> BuildShortcutHelp() =>
+        BuildCommands()
+            .Where(command => command.MatchesShortcut is not null && !string.IsNullOrWhiteSpace(command.Shortcut))
+            .Select(command => new ShortcutInfo { Keys = command.Shortcut, Action = command.Name })
+            .Concat(ShortcutCatalog.Contextual)
+            .ToList();
+
+    private bool TryRunGlobalCommand(KeyEventArgs e, bool textInput)
+    {
+        var command = BuildCommands().FirstOrDefault(candidate =>
+            candidate.MatchesShortcut?.Invoke(e) == true && (candidate.AllowWhenTyping || !textInput));
+        if (command is null)
+        {
+            return false;
+        }
+
+        command.Run();
+        e.Handled = true;
+        return true;
+    }
+
+    private static bool MatchesCommand(KeyEventArgs e, bool shift, params Key[] keys) =>
+        PlatformKeys.IsCommand(e.KeyModifiers) &&
+        !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        e.KeyModifiers.HasFlag(KeyModifiers.Shift) == shift &&
+        keys.Contains(e.Key);
+
+    private static bool MatchesRedo(KeyEventArgs e) =>
+        PlatformKeys.IsMac
+            ? MatchesCommand(e, shift: true, Key.Z)
+            : MatchesCommand(e, shift: false, Key.Y);
+
+    private static bool MatchesZoomIn(KeyEventArgs e) =>
+        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        e.Key is Key.OemPlus or Key.Add;
+
+    private static bool MatchesSettings(KeyEventArgs e) =>
+        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        e.Key == Key.OemComma;
+
+    private static bool MatchesShortcutHelp(KeyEventArgs e) =>
+        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        (e.Key is Key.OemQuestion or Key.Oem2 ||
+         (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.D7));
+
+    private void CloseDocument()
+    {
+        _editorControl.ExitFocusMode();
+        _vm.CloseEditor();
+        ShowCenter(CenterViewKind.Notes);
+    }
 
     private void OnRootKeyDown(object? sender, KeyEventArgs e)
     {
@@ -1949,136 +2258,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (mod && e.Key == Key.W)
+        if (TryRunGlobalCommand(e, textInput))
         {
-            _editorControl.ExitFocusMode();
-            _vm.CloseEditor();
-            ShowCenter(CenterViewKind.Notes);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && shift && e.Key == Key.P)
-        {
-            _ = ShowCommandsAsync();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.OemComma)
-        {
-            _ = ShowSettingsAsync();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && (e.Key == Key.OemQuestion || e.Key == Key.Oem2 || (shift && e.Key == Key.D7)))
-        {
-            _ = ShowShortcutsAsync();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && (e.Key == Key.OemPlus || e.Key == Key.Add))
-        {
-            ChangeZoom(0.1);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && (e.Key == Key.OemMinus || e.Key == Key.Subtract))
-        {
-            ChangeZoom(-0.1);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.D0)
-        {
-            OnZoomReset(this, new RoutedEventArgs());
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.D1)
-        {
-            ShowCenter(CenterViewKind.Graph);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.D2)
-        {
-            ShowCenter(CenterViewKind.Notes);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.D3)
-        {
-            ShowCenter(CenterViewKind.Tasks);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.D4)
-        {
-            ShowCenter(CenterViewKind.People);
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.N && !shift)
-        {
-            CreateNote();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && shift && e.Key == Key.N)
-        {
-            CreateProject();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.S)
-        {
-            _vm.SaveNow();
-            e.Handled = true;
-            return;
-        }
-
-        if (mod && e.Key == Key.F)
-        {
-            if (shift)
-            {
-                FocusSearch();
-            }
-            else
-            {
-                FindInDocument();
-            }
-            e.Handled = true;
             return;
         }
 
         if (textInput && IsReservedEditorKey(e.Key, mod))
         {
-            return;
-        }
-
-        if (mod && e.Key == Key.Z && !shift)
-        {
-            _vm.Undo();
-            e.Handled = true;
-            return;
-        }
-
-        if ((mod && shift && e.Key == Key.Z) || (mod && e.Key == Key.Y))
-        {
-            _vm.Redo();
-            e.Handled = true;
             return;
         }
 

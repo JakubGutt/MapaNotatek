@@ -3,7 +3,11 @@ name: Cross-platform smoke
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -15,6 +19,8 @@ jobs:
             rid: osx-arm64
           - os: windows-latest
             rid: win-x64
+          - os: windows-latest
+            rid: win-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +43,13 @@ jobs:
       - name: Package Windows app
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./publish-windows.ps1 ${{ matrix.rid }}
+        run: |
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") -and
+              -not (Test-Path "$env:ProgramFiles\Inno Setup 7\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+          ./publish-windows.ps1 ${{ matrix.rid }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,3 +57,21 @@ jobs:
           path: |
             artifacts/MapaNotatek-${{ matrix.rid }}.zip
             artifacts/MapaNotatek-${{ matrix.rid }}.zip.sha256
+            artifacts/MapaNotatek-Setup-${{ matrix.rid }}.exe
+            artifacts/MapaNotatek-Setup-${{ matrix.rid }}.exe.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes --title "MapaNotatek $GITHUB_REF_NAME"

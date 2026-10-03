@@ -18,6 +18,7 @@ public static class LibraryFolderService
         "Assets",
         "History",
         "Recovery",
+        "Imports",
         "app-state.json",
         LibrarySchemaService.ManifestFileName
     };

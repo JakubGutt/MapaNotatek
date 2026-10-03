@@ -48,6 +48,7 @@ public partial class GraphView : UserControl
 
     public event Action<double>? ZoomChanged;
     public event Action<Project>? DeleteProjectRequested;
+    public event Action<Project>? ExportSystemRequested;
     public Func<Project, Project, Task<bool>>? ConfirmHierarchyMove { get; set; }
 
     public double ZoomFactor => _zoom;
@@ -1058,6 +1059,11 @@ public partial class GraphView : UserControl
                 ViewModel.SetProjectParent(project, null);
             }
         }));
+        if (project?.ItemType == ProjectItemType.System)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Eksportuj system…", () => ExportSystemRequested?.Invoke(project)));
+        }
         menu.Items.Add(new Separator());
         menu.Items.Add(Item($"Usuń: {project?.ItemType.Label().ToLowerInvariant() ?? "element"}…", () =>
         {

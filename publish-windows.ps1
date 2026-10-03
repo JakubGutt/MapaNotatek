@@ -24,10 +24,15 @@ if (-not $rid) {
         $rid = "win-x64"
     }
 }
+if ($rid -notin @("win-x64", "win-arm64")) {
+    throw "Obsługiwane warianty Windows to win-x64 i win-arm64."
+}
 
 $out = Join-Path $root "artifacts\$rid"
 $zip = Join-Path $root "artifacts\MapaNotatek-$rid.zip"
 $checksum = "$zip.sha256"
+$installer = Join-Path $root "artifacts\MapaNotatek-Setup-$rid.exe"
+$installerChecksum = "$installer.sha256"
 Write-Host "SDK: $(dotnet --version)"
 Write-Host "Publish → $out (RID=$rid, self-contained)"
 
@@ -39,6 +44,12 @@ if (Test-Path $zip) {
 }
 if (Test-Path $checksum) {
     Remove-Item -Force $checksum
+}
+if (Test-Path $installer) {
+    Remove-Item -Force $installer
+}
+if (Test-Path $installerChecksum) {
+    Remove-Item -Force $installerChecksum
 }
 
 dotnet publish $project `
@@ -61,8 +72,33 @@ Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLe
 $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
 Set-Content -Path $checksum -Encoding ascii -Value "$hash  $(Split-Path -Leaf $zip)"
 
+$isccCandidates = @(
+    (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+    (Join-Path $env:ProgramFiles "Inno Setup 7\ISCC.exe"),
+    (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+) | Where-Object { $_ -and (Test-Path $_) }
+
+if ($isccCandidates.Count -gt 0) {
+    $env:MAPANOTATKI_VERSION = $version
+    $env:MAPANOTATKI_PUBLISH_DIR = $out
+    $env:MAPANOTATKI_RID = $rid
+    $env:MAPANOTATKI_ALLOWED_ARCH = if ($rid -eq "win-arm64") { "arm64" } else { "x64compatible" }
+    & $isccCandidates[0] (Join-Path $root "packaging\windows\MapaNotatek.iss")
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+    Set-Content -Path $installerChecksum -Encoding ascii -Value "$installerHash  $(Split-Path -Leaf $installer)"
+} else {
+    Write-Warning "Nie znaleziono Inno Setup. Powstała paczka ZIP, ale instalator EXE nie został zbudowany."
+}
+
 Write-Host ""
 Write-Host "Gotowe: $out\MapaNotatek.exe"
 Write-Host "ZIP do przekazania: $zip"
 Write-Host "Suma SHA-256: $checksum"
+if (Test-Path $installer) {
+    Write-Host "Instalator: $installer"
+    Write-Host "Suma instalatora: $installerChecksum"
+}
 Write-Host "Uruchom: & '$out\MapaNotatek.exe'"

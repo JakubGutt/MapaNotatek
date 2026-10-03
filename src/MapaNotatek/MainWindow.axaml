@@ -51,6 +51,10 @@
                 <MenuItem Header="Zapisz" Click="OnSave" />
                 <MenuItem Header="Zachowaj konflikt jako osobną kopię…" Click="OnPreserveConflictCopy" />
                 <MenuItem Header="Eksportuj kopię…" Click="OnExportBackup" />
+                <Separator />
+                <MenuItem Header="Eksportuj system…" Click="OnExportSystem" />
+                <MenuItem Header="Otwórz propozycję scalenia…" Click="OnOpenMergeProposal" />
+                <MenuItem Header="Historia scaleń…" Click="OnMergeHistory" />
                 <MenuItem Header="Kosz…" Click="OnShowTrash" />
                 <Separator />
                 <MenuItem Header="Ustawienia…" Click="OnSettings" />
@@ -92,6 +96,9 @@
                 <MenuItem Header="Nowy projekt ogólny" Tag="Project" Click="OnNewProjectItem" />
                 <MenuItem Header="Nowy folder" Tag="Folder" Click="OnNewProjectItem" />
                 <MenuItem Header="Pokaż całą strukturę" Click="OnShowAll" />
+                <Separator />
+                <MenuItem Header="Eksportuj zaznaczony system…" Click="OnExportSystem" />
+                <MenuItem Header="Otwórz propozycję scalenia…" Click="OnOpenMergeProposal" />
             </MenuItem>
             <MenuItem Header="Pomo_c">
                 <MenuItem Header="Lista poleceń" Click="OnCommandPalette" />

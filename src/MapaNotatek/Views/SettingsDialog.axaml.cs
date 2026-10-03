@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using MapaNotatek.Models;
 using MapaNotatek.Services;
 using MapaNotatek.ViewModels;
 
@@ -11,11 +12,14 @@ public partial class SettingsDialog : UserControl
     public SettingsDialog()
     {
         InitializeComponent();
-        ShortcutsList.ItemsSource = ShortcutCatalog.All.Select(s => $"{s.Keys} — {s.Action}").ToList();
+        SetShortcuts(ShortcutCatalog.Contextual);
     }
 
     public MainViewModel? ViewModel { get; set; }
     public Window? HostWindow { get; set; }
+
+    public void SetShortcuts(IEnumerable<ShortcutInfo> shortcuts) =>
+        ShortcutsList.ItemsSource = shortcuts.Select(s => $"{s.Keys} — {s.Action}").ToList();
 
     public void Bind()
     {

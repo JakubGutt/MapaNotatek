@@ -79,7 +79,15 @@ var tests = new (string Name, Action Run)[]
     ("kliknięcie poza polem kończy edycję w całej aplikacji", ClickOutsideDismissesTextEditing),
     ("wyszukiwarka obsługuje filtry i pełne frazy", SearchFiltersAndPhrases),
     ("wyszukiwarka obsługuje wykluczenia i zadania", SearchExclusionsAndTasks),
-    ("wyszukiwarka rozróżnia foldery i projekty", SearchProjectTypes)
+    ("wyszukiwarka rozróżnia foldery i projekty", SearchProjectTypes),
+    ("pakiet systemu nie zmienia biblioteki przed scaleniem", SystemPackagePreviewIsReadOnly),
+    ("pierwsze scalenie zachowuje strukturę taski osoby i assets", FirstSystemMergeRoundTrip),
+    ("kolejna paczka scala niekolidujące zmiany trójstronnie", SubsequentSystemMergeIsThreeWay),
+    ("konflikt fragmentu wymaga decyzji", OverlappingSystemMergeRequiresResolution),
+    ("kopia biblioteki zachowuje historię importów", BackupIncludesImportHistory),
+    ("cofnięcie scalenia jest odwrotną propozycją zmian", MergeRevertUsesReview),
+    ("pakiet systemu wykrywa zmianę po eksporcie", SystemPackageDetectsTampering),
+    ("pakiet systemu odrzuca wyjście poza katalog", SystemPackageRejectsTraversal)
 };
 
 var failed = 0;
@@ -1481,6 +1489,233 @@ static void AtomicReplaceRestoresRacedFile()
     Equal("zmiana zewnętrzna", File.ReadAllText(target));
 }
 
+static void SystemPackagePreviewIsReadOnly()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    var beforeProjects = CountMarkdown(Path.Combine(fixture.Target, "Projects"));
+    var beforeNotes = CountMarkdown(Path.Combine(fixture.Target, "Notes"));
+
+    var proposal = SystemMergeService.CreateProposal(fixture.Target, fixture.Package);
+
+    True(proposal.IsFirstImport);
+    True(proposal.Changes.Count >= 4, "Podgląd powinien zawierać system, produkt, notatkę i osobę.");
+    Equal(beforeProjects, CountMarkdown(Path.Combine(fixture.Target, "Projects")));
+    Equal(beforeNotes, CountMarkdown(Path.Combine(fixture.Target, "Notes")));
+    False(Directory.Exists(Path.Combine(fixture.Target, "Imports")), "Samo otwarcie paczki nie może tworzyć historii importu.");
+
+    static int CountMarkdown(string folder) => Directory.Exists(folder)
+        ? Directory.GetFiles(folder, "*.md").Length
+        : 0;
+}
+
+static void FirstSystemMergeRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    var proposal = SystemMergeService.CreateProposal(fixture.Target, fixture.Package);
+    var result = SystemMergeService.Apply(fixture.Target, proposal);
+    True(result.Added >= 4);
+
+    var store = new MarkdownStore(fixture.Target);
+    var projects = store.LoadProjects();
+    var importedSystem = projects.Single(project => project.ItemType == ProjectItemType.System);
+    var importedProduct = projects.Single(project => project.ItemType == ProjectItemType.Product);
+    False(string.Equals(fixture.SourceSystemId, importedSystem.Id, StringComparison.OrdinalIgnoreCase),
+        "Pierwsze scalenie powinno utworzyć lokalne identyfikatory.");
+    Equal(importedSystem.Id, importedProduct.ParentId);
+
+    var note = store.LoadNotes().Single(note => note.Title == "Plan przekazania");
+    True(note.Body.Contains("- [ ] Sprawdzić paczkę", StringComparison.Ordinal));
+    True(note.Body.Contains($"../Assets/{note.Id}/diagram.png", StringComparison.Ordinal));
+    True(File.Exists(Path.Combine(fixture.Target, "Assets", note.Id, "diagram.png")));
+    var person = store.LoadPeople().Single(person => person.Name == "Anna Koleżanka");
+    True(note.People.Contains(person.Slug));
+    True(Directory.EnumerateFiles(Path.Combine(fixture.Target, "Imports"), "tracking.json", SearchOption.AllDirectories).Any());
+}
+
+static void SubsequentSystemMergeIsThreeWay()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    SystemMergeService.Apply(fixture.Target, SystemMergeService.CreateProposal(fixture.Target, fixture.Package));
+
+    var targetStore = new MarkdownStore(fixture.Target);
+    var localNote = targetStore.LoadNotes().Single(note => note.Title == "Plan przekazania");
+    localNote.Body = localNote.Body.Replace("Linia lokalna", "Linia zmieniona u mnie", StringComparison.Ordinal);
+    targetStore.SaveNote(localNote);
+
+    var sourceStore = new MarkdownStore(fixture.Source);
+    var sourceNote = sourceStore.LoadNotes().Single(note => note.Id == fixture.SourceNoteId);
+    sourceNote.Body = sourceNote.Body.Replace("Linia kolegi", "Linia zmieniona przez kolegę", StringComparison.Ordinal);
+    sourceStore.SaveNote(sourceNote);
+    var secondPackage = Path.Combine(temp.Path, "exchange", "system-2.mapanotatki");
+    SystemTransferPackageService.Export(fixture.Source, fixture.SourceSystemId, secondPackage,
+        new AppStateStore(fixture.Source).Load());
+
+    var proposal = SystemMergeService.CreateProposal(fixture.Target, secondPackage);
+    var noteChange = proposal.Changes.Single(change => change.Kind == MergeEntityKind.Note);
+    Equal(0, noteChange.Conflicts.Count);
+    SystemMergeService.Apply(fixture.Target, proposal);
+
+    var merged = new MarkdownStore(fixture.Target).LoadNotes().Single(note => note.Title == "Plan przekazania");
+    True(merged.Body.Contains("Linia zmieniona u mnie", StringComparison.Ordinal));
+    True(merged.Body.Contains("Linia zmieniona przez kolegę", StringComparison.Ordinal));
+    Equal(0, SystemMergeService.CreateProposal(fixture.Target, secondPackage).Changes.Count);
+}
+
+static void OverlappingSystemMergeRequiresResolution()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    SystemMergeService.Apply(fixture.Target, SystemMergeService.CreateProposal(fixture.Target, fixture.Package));
+
+    var targetStore = new MarkdownStore(fixture.Target);
+    var local = targetStore.LoadNotes().Single(note => note.Title == "Plan przekazania");
+    local.Body = local.Body.Replace("Linia lokalna", "Moja wersja tej samej linii", StringComparison.Ordinal);
+    targetStore.SaveNote(local);
+
+    var sourceStore = new MarkdownStore(fixture.Source);
+    var remote = sourceStore.LoadNotes().Single(note => note.Id == fixture.SourceNoteId);
+    remote.Body = remote.Body.Replace("Linia lokalna", "Wersja kolegi tej samej linii", StringComparison.Ordinal);
+    sourceStore.SaveNote(remote);
+    var package = Path.Combine(temp.Path, "exchange", "system-konflikt.mapanotatki");
+    SystemTransferPackageService.Export(fixture.Source, fixture.SourceSystemId, package,
+        new AppStateStore(fixture.Source).Load());
+
+    var proposal = SystemMergeService.CreateProposal(fixture.Target, package);
+    var noteChange = proposal.Changes.Single(change => change.Kind == MergeEntityKind.Note);
+    True(noteChange.Conflicts.Count > 0);
+    True(SystemMergeService.ValidateSelections(proposal).Count > 0);
+    foreach (var conflict in noteChange.Conflicts)
+    {
+        conflict.Resolution = MergeResolution.Mine;
+    }
+    Equal(0, SystemMergeService.ValidateSelections(proposal).Count);
+    SystemMergeService.Apply(fixture.Target, proposal);
+    var merged = new MarkdownStore(fixture.Target).LoadNotes().Single(note => note.Title == "Plan przekazania");
+    True(merged.Body.Contains("Moja wersja tej samej linii", StringComparison.Ordinal));
+    False(merged.Body.Contains("Wersja kolegi tej samej linii", StringComparison.Ordinal));
+}
+
+static void BackupIncludesImportHistory()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    SystemMergeService.Apply(fixture.Target, SystemMergeService.CreateProposal(fixture.Target, fixture.Package));
+    var backup = Path.Combine(temp.Path, "backup-imports");
+    BackupService.ExportCopy(fixture.Target, backup);
+    True(Directory.EnumerateFiles(Path.Combine(backup, "Imports"), "tracking.json", SearchOption.AllDirectories).Any());
+    True(BackupService.Validate(backup).IsValid);
+}
+
+static void MergeRevertUsesReview()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    SystemMergeService.Apply(fixture.Target, SystemMergeService.CreateProposal(fixture.Target, fixture.Package));
+    var originalMerge = SystemMergeService.ListHistory(fixture.Target).Single();
+
+    var targetStore = new MarkdownStore(fixture.Target);
+    var edited = targetStore.LoadNotes().Single(note => note.Title == "Plan przekazania");
+    edited.Body = "Późniejsza lokalna zmiana";
+    targetStore.SaveNote(edited);
+
+    var revert = SystemMergeService.CreateRevertProposal(fixture.Target, originalMerge.MergeId);
+    var noteDeletion = revert.Changes.Single(change =>
+        change.Kind == MergeEntityKind.Note && change.ChangeType == MergeChangeType.Deleted);
+    noteDeletion.IsSelected = true;
+    True(noteDeletion.Conflicts.Count > 0, "Cofnięcie nie może skasować późniejszej lokalnej zmiany bez konfliktu.");
+    noteDeletion.Conflicts.Single().Resolution = MergeResolution.Mine;
+    foreach (var change in revert.Changes.Where(change => change.ChangeType == MergeChangeType.Deleted &&
+                                                          change.Kind != MergeEntityKind.Note))
+        change.IsSelected = true;
+
+    True(SystemMergeService.ValidateSelections(revert).Count > 0,
+        "Nie wolno usuwać projektu ani osoby, od których nadal zależy zachowana notatka.");
+    foreach (var change in revert.Changes.Where(change => change.ChangeType == MergeChangeType.Deleted &&
+                                                          change.Kind != MergeEntityKind.Note))
+        change.IsSelected = false;
+
+    SystemMergeService.ApplyRevert(fixture.Target, revert);
+    var after = new MarkdownStore(fixture.Target);
+    True(after.LoadNotes().Any(note => note.Body.Contains("Późniejsza lokalna zmiana", StringComparison.Ordinal)));
+    True(SystemMergeService.ListHistory(fixture.Target).Any(item => item.IsRevert && item.RevertsMergeId == originalMerge.MergeId));
+}
+
+static void SystemPackageDetectsTampering()
+{
+    using var temp = new TemporaryDirectory();
+    var fixture = CreateTransferFixture(temp.Path);
+    using (var stream = new FileStream(fixture.Package, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+    using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Update))
+    {
+        archive.GetEntry("snapshot.json")!.Delete();
+        var replacement = archive.CreateEntry("snapshot.json");
+        using var writer = new StreamWriter(replacement.Open());
+        writer.Write("{}");
+    }
+
+    Throws<InvalidDataException>(() => SystemTransferPackageService.Open(fixture.Package));
+}
+
+static void SystemPackageRejectsTraversal()
+{
+    using var temp = new TemporaryDirectory();
+    var package = Path.Combine(temp.Path, "zlosliwy.mapanotatki");
+    using (var stream = new FileStream(package, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+    using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create))
+    {
+        var entry = archive.CreateEntry("../poza-biblioteka.txt");
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write("nie zapisuj");
+    }
+
+    Throws<InvalidDataException>(() => SystemTransferPackageService.Open(package));
+    False(File.Exists(Path.Combine(temp.Path, "poza-biblioteka.txt")));
+}
+
+static TransferFixture CreateTransferFixture(string root)
+{
+    var source = Path.Combine(root, "source-library");
+    var target = Path.Combine(root, "target-library");
+    _ = LibrarySchemaService.Prepare(source);
+    _ = LibrarySchemaService.Prepare(target);
+    var sourceStore = new MarkdownStore(source);
+    var system = sourceStore.CreateProject("System kolegi", null, ProjectItemType.System);
+    var product = sourceStore.CreateProject("Produkt kolegi", system.Id, ProjectItemType.Product);
+    var person = sourceStore.CreatePerson("Anna Koleżanka");
+    product.People = [person.Slug];
+    product.Description = "Opis produktu\n\n- [ ] Zadanie produktu <!-- people: anna-kolezanka -->";
+    product.Checklist = FrontMatter.Parse(product.Description).Checklist;
+    sourceStore.SaveProject(product);
+    var note = sourceStore.CreateNote("Plan przekazania", [product.Slug]);
+    note.People = [person.Slug];
+    note.Body = "Linia lokalna\nLinia kolegi\n\n- [ ] Sprawdzić paczkę <!-- people: anna-kolezanka -->\n\n![diagram](../Assets/" + note.Id + "/diagram.png)";
+    note.Checklist = FrontMatter.Parse(note.Body).Checklist;
+    sourceStore.SaveNote(note);
+    var assets = Path.Combine(source, "Assets", note.Id);
+    Directory.CreateDirectory(assets);
+    File.WriteAllBytes(Path.Combine(assets, "diagram.png"), MinimalPngBytes());
+
+    var state = new AppState
+    {
+        DataFolder = source,
+        NodePositions = new Dictionary<string, GraphPosition>
+        {
+            [system.Id] = new() { Id = system.Id, X = 120, Y = 120 },
+            [product.Id] = new() { Id = product.Id, X = 360, Y = 180 },
+            [note.Id] = new() { Id = note.Id, X = 560, Y = 260 }
+        }
+    };
+    new AppStateStore(source).Save(state);
+    var exchange = Path.Combine(root, "exchange");
+    Directory.CreateDirectory(exchange);
+    var package = Path.Combine(exchange, "system-1.mapanotatki");
+    SystemTransferPackageService.Export(source, system.Id, package, state);
+    return new TransferFixture(source, target, package, system.Id, note.Id);
+}
+
 static string FindRepositoryRoot()
 {
     var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -1555,6 +1790,13 @@ static void Throws<TException>(Action action) where TException : Exception
 
     throw new InvalidOperationException($"Oczekiwano wyjątku {typeof(TException).Name}.");
 }
+
+sealed record TransferFixture(
+    string Source,
+    string Target,
+    string Package,
+    string SourceSystemId,
+    string SourceNoteId);
 
 sealed class TemporaryDirectory : IDisposable
 {

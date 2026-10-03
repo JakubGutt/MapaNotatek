@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MapaNotatek.Views.MergeReviewDialog"
+        Title="Propozycja scalenia"
+        Width="1120"
+        Height="760"
+        MinWidth="900"
+        MinHeight="620"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="18" RowSpacing="14">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <StackPanel Spacing="4">
+                <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock x:Name="MetadataText" Opacity="0.66" TextWrapping="Wrap" />
+                <TextBlock x:Name="SummaryText" FontWeight="SemiBold" />
+            </StackPanel>
+            <Border Grid.Column="1" Classes="surface" Padding="12,8" VerticalAlignment="Center">
+                <TextBlock Text="base  →  main  ←  kolega" FontFamily="Consolas" />
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="390,*" ColumnSpacing="14">
+            <Border Classes="surface" Padding="10">
+                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                    <TextBlock Text="ZMIANY DO PRZEGLĄDU" FontSize="11" FontWeight="SemiBold" Opacity="0.64" />
+                    <ListBox x:Name="ChangesList" Grid.Row="1" SelectionChanged="OnSelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9" Margin="2,4">
+                                    <CheckBox IsChecked="{ReflectionBinding IsSelected, Mode=TwoWay}"
+                                              VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Spacing="1">
+                                        <TextBlock Text="{ReflectionBinding Title}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{ReflectionBinding KindLabel}" FontSize="11" Opacity="0.6" />
+                                    </StackPanel>
+                                    <Border Grid.Column="2" CornerRadius="5" Padding="7,3"
+                                            Background="{DynamicResource SurfaceMutedBrush}"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="{ReflectionBinding ChangeLabel}" FontSize="11" />
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1" Classes="surface" Padding="14">
+                <ScrollViewer>
+                    <StackPanel x:Name="DetailsPanel" Spacing="12" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="14">
+            <StackPanel Spacing="3" VerticalAlignment="Center">
+                <TextBlock x:Name="ValidationText" TextWrapping="Wrap" Foreground="#DC2626" />
+                <TextBlock x:Name="WarningText" TextWrapping="Wrap" Opacity="0.7" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Content="Anuluj" MinWidth="96" IsCancel="True" Click="OnCancel" />
+                <Button x:Name="MergeButton" Content="Scal zmiany" MinWidth="140" IsDefault="True" Click="OnMerge" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

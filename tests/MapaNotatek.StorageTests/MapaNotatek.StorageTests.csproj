@@ -31,6 +31,10 @@
     <Compile Include="../../src/MapaNotatek/Services/RevisionStore.cs" Link="Source/Services/RevisionStore.cs" />
     <Compile Include="../../src/MapaNotatek/Services/SearchService.cs" Link="Source/Services/SearchService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/SlugHelper.cs" Link="Source/Services/SlugHelper.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/SystemMergeService.cs" Link="Source/Services/SystemMergeService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/SystemTransferModels.cs" Link="Source/Services/SystemTransferModels.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/SystemTransferPackageService.cs" Link="Source/Services/SystemTransferPackageService.cs" />
+    <Compile Include="../../src/MapaNotatek/Services/ThreeWayTextMerge.cs" Link="Source/Services/ThreeWayTextMerge.cs" />
     <Compile Include="../../src/MapaNotatek/Services/VisualDocumentService.cs" Link="Source/Services/VisualDocumentService.cs" />
     <Compile Include="../../src/MapaNotatek/Services/WikiLinkService.cs" Link="Source/Services/WikiLinkService.cs" />
   </ItemGroup>

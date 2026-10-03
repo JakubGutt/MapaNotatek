@@ -2,8 +2,8 @@
 
 ## Dla użytkownika
 
-1. Pobierz paczkę odpowiednią dla komputera i rozpakuj ZIP.
-2. Uruchom `MapaNotatek.app` na macOS albo `MapaNotatek.exe` na Windows.
+1. Pobierz paczkę odpowiednią dla komputera. Na Windows wybierz instalator `MapaNotatek-Setup-win-x64.exe` (większość komputerów) albo `MapaNotatek-Setup-win-arm64.exe`; na macOS rozpakuj ZIP.
+2. Uruchom instalator na Windows albo `MapaNotatek.app` na macOS. Przenośny ZIP Windows pozostaje alternatywą bez instalacji.
 3. Przy pierwszym starcie aplikacja utworzy lokalną bibliotekę w folderze Dokumenty. Lokalizację można później zmienić w Ustawieniach.
 4. Zacznij od „Notatka z szablonu…” albo „Nowa notatka”. Wszystkie zmiany zapisują się automatycznie.
 5. Przy zamykaniu wskaż osobny dysk lub nośnik na kopię. Aplikacja zachowa zweryfikowane wersje `Current` i `Previous`. Ręczny eksport z datą nadal jest dostępny w Ustawieniach.
@@ -18,7 +18,7 @@ Na macOS kliknij aplikację z wciśniętym Control, wybierz „Otwórz”, a nas
 
 ## Sprawdzenie paczki
 
-Razem z ZIP-em powinien zostać przekazany plik `.zip.sha256`.
+Razem z instalatorem lub ZIP-em powinien zostać przekazany odpowiadający mu plik `.sha256`.
 
 macOS:
 
@@ -30,9 +30,11 @@ Windows PowerShell:
 
 ```powershell
 (Get-FileHash .\MapaNotatek-win-x64.zip -Algorithm SHA256).Hash
+# albo dla instalatora:
+(Get-FileHash .\MapaNotatek-Setup-win-x64.exe -Algorithm SHA256).Hash
 ```
 
-Wartość z PowerShella powinna być taka sama jak pierwsza wartość w pliku `.zip.sha256`.
+Wartość z PowerShella powinna być taka sama jak pierwsza wartość w odpowiednim pliku `.sha256`.
 
 ## Gdzie są dane
 

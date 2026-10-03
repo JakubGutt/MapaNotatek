@@ -61,6 +61,7 @@ public sealed class MainViewModel : ObservableObject
         var requestedRoot = state.DataFolder ?? _stateStore.DefaultDataFolder;
         try
         {
+            SystemMergeService.RecoverInterruptedMerge(requestedRoot);
             _libraryOpen = LibrarySchemaService.Prepare(requestedRoot);
         }
         catch (Exception ex)

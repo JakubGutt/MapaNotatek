@@ -34,6 +34,9 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;
 - Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;
 - kosz dla notatek, projektów i osób z możliwością przywrócenia;
+- przenoszenie całych systemów między niezależnymi bibliotekami jako pojedynczy plik `.mapanotatki`;
+- lokalny ekran Pull Requesta pokazujący wszystkie dodania, zmiany, przeniesienia i usunięcia przed zapisaniem czegokolwiek;
+- trójstronne scalanie `base / main / kolega`, konflikty rozwiązywane fragmentami tekstu i polami struktury oraz historia z bezpiecznym cofnięciem scalenia;
 - zweryfikowane kopie danych i przywracanie ich do nowego lub pustego folderu.
 
 Edytor komórkowy zapisuje zwykły Markdown w tle. Daje to czytelne i przenośne pliki bez własnościowego formatu. Podczas edycji komórka może pokazać przenośne znaczniki, np. `**tekst**`, ale bezpośrednio pod nią wyświetla rzeczywiście sformatowany wynik. Krój i rozmiar pisma są lokalną preferencją widoku, a semantyczne formatowanie pozostaje zapisane w pliku. Nie jest to pełne odwzorowanie wszystkich funkcji Worda.
@@ -79,7 +82,7 @@ dotnet run --project src/MapaNotatek/MapaNotatek.csproj
 
 ## Publikacja dla współpracowników
 
-Odbiorca nie potrzebuje .NET. Skrypty tworzą gotowy ZIP: na macOS z pakietem `MapaNotatek.app`, a na Windows z samodzielnym `MapaNotatek.exe`.
+Odbiorca nie potrzebuje .NET. Skrypty tworzą gotowy ZIP: na macOS z pakietem `MapaNotatek.app`, a na Windows z samodzielnym `MapaNotatek.exe`. Jeżeli na komputerze budującym jest Inno Setup, skrypt Windows tworzy również właściwy instalator `MapaNotatek-Setup-<RID>.exe` ze skrótami i deinstalatorem.
 
 Przed pierwszym publikowaniem deweloper wykonuje jednorazowo `dotnet restore MapaNotatek.sln`. Same skrypty publikujące działają później z `--no-restore`, więc nie inicjują połączenia z NuGet.
 
@@ -93,7 +96,7 @@ Przed pierwszym publikowaniem deweloper wykonuje jednorazowo `dotnet restore Map
 .\publish-windows.ps1 win-arm64
 ```
 
-Wynik do przekazania koledze to `artifacts/MapaNotatek-<RID>.zip`. Obok powstaje plik `.zip.sha256`, którym można sprawdzić integralność paczki. CI buduje i testuje `osx-arm64` oraz `win-x64` przy każdym pushu i zgłoszeniu zmian (pull request).
+Wynik do przekazania koledze to instalator `artifacts/MapaNotatek-Setup-<RID>.exe` albo przenośny `artifacts/MapaNotatek-<RID>.zip`. Obok obu artefaktów powstają pliki `.sha256`, którymi można sprawdzić integralność. CI buduje i testuje `osx-arm64`, `win-x64` oraz `win-arm64`; tag `v*` automatycznie publikuje komplet jako wydanie GitHuba.
 
 Pakiet macOS ma bezpłatny podpis ad-hoc, ale artefakty nie mają zaufanego podpisu Developer ID/Authenticode ani notaryzacji. Gatekeeper lub SmartScreen mogą więc pokazać ostrzeżenie. Do wygodnej dystrybucji poza małą, zaufaną grupą potrzebne są płatne certyfikaty, notaryzacja i ewentualnie `.dmg`/instalator. Aplikacja nie ma automatycznego aktualizatora — nową wersję przekazuje się jako nowy ZIP z sumą SHA-256. Migracja formatu danych odbywa się w nowym katalogu, a oryginalna biblioteka pozostaje do wycofania aktualizacji.
 
@@ -113,6 +116,7 @@ MapaNotatek/
   Trash/                 # usunięte notatki
     Projects/            # usunięte projekty
   Recovery/              # zachowane uszkodzone pliki stanu
+  Imports/               # bazy porównawcze, mapowanie ID i historia lokalnych scaleń
   library.json           # identyfikator biblioteki i wersja schematu danych
   app-state.json         # ustawienia biblioteki i stan interfejsu
 ```
@@ -127,6 +131,14 @@ Kopia tworzona w ustawieniach jest folderem z manifestem SHA-256. Zawiera tylko 
 
 Historia wersji i kosz ułatwiają cofnięcie pomyłki, ale nie zastępują kopii na osobnym nośniku.
 
+## Przekazywanie systemów i lokalny Pull Request
+
+Kolega zaznacza system i wybiera `Eksportuj system…`. Powstaje jeden plik `.mapanotatki`, który można przesłać przez Teams, e-mail albo pendrive. Paczka zawiera wyłącznie wybrany system, jego drzewo, notatki, taski, używane osoby, załączniki, relacje i względny układ grafu. Manifest SHA-256 jest sprawdzany przed pokazaniem zawartości.
+
+Odbiorca wybiera `Plik → Otwórz propozycję scalenia…`. Samo otwarcie paczki nie zmienia biblioteki. Ekran propozycji pozwala odznaczać zmiany i rozwiązać każdy konflikt jako wersję własną, wersję kolegi albo — tam, gdzie ma to sens — połączenie obu. Pierwsza paczka zawsze tworzy osobny system z nowymi lokalnymi identyfikatorami. Kolejne paczki od tej samej biblioteki i systemu korzystają z zapamiętanego `base`, więc niekolidujące zmiany scalają się automatycznie.
+
+Każde zatwierdzenie odbywa się najpierw na zweryfikowanej kopii stagingowej. `Plik → Historia scaleń…` pokazuje wykonane operacje i pozwala przygotować odwrotną propozycję zmian. Jeżeli po scaleniu coś zostało lokalnie zmienione, cofnięcie pokaże konflikt zamiast usuwać nowszą pracę.
+
 ## Testy
 
 ```bash
@@ -136,7 +148,7 @@ dotnet run --project tests/MapaNotatek.StorageTests/MapaNotatek.StorageTests.csp
 dotnet run --project tests/MapaNotatek.ExportTests/MapaNotatek.ExportTests.csproj -c Release --no-build
 ```
 
-Zestaw regresyjny obejmuje między innymi zapis i odzyskiwanie, integralność kopii, ograniczenie ścieżek, kosz, historię, konflikty zmian zewnętrznych, edytor blokowy, szablony, filtrowanie, statyczną blokadę klientów sieciowych oraz prawdziwą walidację eksportów DOCX, PDF i HTML.
+Zestaw regresyjny obejmuje między innymi zapis i odzyskiwanie, integralność kopii, ograniczenie ścieżek, kosz, historię, lokalne Pull Requesty, trójstronne scalanie i cofanie merge'ów, konflikty zmian zewnętrznych, edytor blokowy, szablony, filtrowanie, statyczną blokadę klientów sieciowych oraz prawdziwą walidację eksportów DOCX, PDF i HTML.
 
 ## Szybkie wyszukiwanie
 
