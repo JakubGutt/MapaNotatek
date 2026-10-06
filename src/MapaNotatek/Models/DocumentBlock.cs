@@ -26,8 +26,10 @@ public sealed class DocumentBlock
     public DocumentBlockKind Kind { get; set; }
     public string Text { get; set; } = string.Empty;
     public bool IsChecked { get; set; }
+    public string TaskId { get; set; } = string.Empty;
     public List<string> People { get; set; } = [];
     public int? TaskPriority { get; set; }
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
     public string Language { get; set; } = string.Empty;
     public string ImagePath { get; set; } = string.Empty;
     public List<List<string>> Cells { get; set; } = [];

@@ -16,6 +16,8 @@ var tests = new (string Name, Action Run)[]
     ("nazwa osoby rozwiązuje się do stabilnego identyfikatora", PersonNameResolvesToStableSlug),
     ("osoby przypisane do zadań przechodzą round-trip", TaskPeopleRoundTrip),
     ("priorytet zadań przechodzi round-trip", TaskPriorityRoundTrip),
+    ("schemat 3 zachowuje linki i identyfikatory zadań", SchemaThreeLinksRoundTrip),
+    ("migracja schematu 3 oddziela cel od planu działania", SchemaThreeProjectMigration),
     ("rejestr osób zapisuje profil i awatar", PersonStoreRoundTrip),
     ("osobę można przenieść do kosza i przywrócić", PersonTrashRoundTrip),
     ("ponowny zapis tworzy kopię awaryjną", AtomicSaveCreatesBackup),
@@ -29,6 +31,7 @@ var tests = new (string Name, Action Run)[]
     ("stan aplikacji odzyskuje się z .bak", AppStateRecoversFromBackup),
     ("wygląd edytora jest zapamiętywany lokalnie", EditorAppearanceRoundTrip),
     ("widoczność paneli bocznych jest zapamiętywana", SidePanelVisibilityRoundTrip),
+    ("zwinięte foldery grafu są zapamiętywane", CollapsedGraphFoldersRoundTrip),
     ("uszkodzony stan bez backupu przerywa ładowanie", CorruptStateWithoutBackupThrows),
     ("odzyskiwanie stanu zachowuje uszkodzony plik", RecoverStatePreservesBrokenFile),
     ("niezamknięty front matter jest błędem", UnterminatedFrontMatterThrows),
@@ -74,6 +77,10 @@ var tests = new (string Name, Action Run)[]
     ("nawigacja ma historię wstecz i dalej", NavigationHistoryIsWired),
     ("filtr grafu obejmuje tylko wybrane drzewo projektu", GraphProjectScopeIsolated),
     ("nowe karty grafu nie nakładają się w układzie", GraphCardsHaveBreathingRoom),
+    ("układ gwiazdowy jest deterministyczny i bez kolizji", StarLayoutIsDeterministic),
+    ("graf obsługuje grupy ramkę zwijanie i sprzątanie", AdvancedGraphControlsAreWired),
+    ("zoom i polska klawiatura mają bezpieczne modyfikatory", InputAndZoomSafeguardsAreWired),
+    ("zadania filtrują źródła i udostępniają lokalne linki", TaskSourceAndLinksAreWired),
     ("panel osób jest podłączony do nawigacji i szczegółów", PeoplePanelIsWired),
     ("przypisania osób korzystają wyłącznie z selektora rejestru", PersonAssignmentsUseRegistryPicker),
     ("kliknięcie poza polem kończy edycję w całej aplikacji", ClickOutsideDismissesTextEditing),
@@ -87,7 +94,8 @@ var tests = new (string Name, Action Run)[]
     ("kopia biblioteki zachowuje historię importów", BackupIncludesImportHistory),
     ("cofnięcie scalenia jest odwrotną propozycją zmian", MergeRevertUsesReview),
     ("pakiet systemu wykrywa zmianę po eksporcie", SystemPackageDetectsTampering),
-    ("pakiet systemu odrzuca wyjście poza katalog", SystemPackageRejectsTraversal)
+    ("pakiet systemu odrzuca wyjście poza katalog", SystemPackageRejectsTraversal),
+    ("pakiety systemu v1 i v2 zachowują zgodność", SystemPackageVersionsRoundTrip)
 };
 
 var failed = 0;
@@ -587,7 +595,7 @@ static void ChecklistPositionRoundTrip()
 
     var note = NoteFrom(parsed);
     var reparsed = FrontMatter.Parse(FrontMatter.WriteNote(note));
-    Equal("Pierwszy akapit.\n- [ ] Zadzwonić\nDrugi akapit.", reparsed.Body);
+    Equal("Pierwszy akapit.\n- [ ] Zadzwonić\nDrugi akapit.", VisibleBody(reparsed.Body));
     Equal(1, CountOccurrences(reparsed.Body, "- [ ] Zadzwonić"));
 }
 
@@ -597,7 +605,7 @@ static void ChecklistToggleInPlace()
     parsed.Checklist[0].IsDone = true;
     var reparsed = FrontMatter.Parse(FrontMatter.WriteNote(NoteFrom(parsed)));
 
-    Equal("Przed.\n- [x] Test\nPo.", reparsed.Body);
+    Equal("Przed.\n- [x] Test\nPo.", VisibleBody(reparsed.Body));
     True(reparsed.Checklist[0].IsDone, "Task powinien być ukończony.");
 }
 
@@ -1367,7 +1375,11 @@ static void OfflineSourcePolicy()
         "System.Net.Sockets",
         "TcpClient",
         "UdpClient",
-        "NativeWebView"
+        "NativeWebView",
+        "Process.Start",
+        "LaunchUri",
+        "OpenUri",
+        "Launcher.Launch"
     };
     var sourceFiles = Directory.EnumerateFiles(Path.Combine(root, "src", "MapaNotatek"), "*.cs", SearchOption.AllDirectories)
         .Concat(Directory.EnumerateFiles(Path.Combine(root, "src", "MapaNotatek"), "*.csproj", SearchOption.TopDirectoryOnly));
@@ -1716,6 +1728,264 @@ static TransferFixture CreateTransferFixture(string root)
     return new TransferFixture(source, target, package, system.Id, note.Id);
 }
 
+static void SchemaThreeLinksRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var store = new MarkdownStore(temp.Path);
+    var project = store.CreateProject("Projekt z linkiem");
+    project.ExternalLinks = [ExternalLinkService.Create("Jira", "https://jira.example.com/browse/MN-12")];
+    project.Checklist =
+    [
+        new ChecklistItem
+        {
+            Id = "task-project-1",
+            Text = "Sprawdzić zgłoszenie",
+            Priority = 700,
+            ExternalLinks = [ExternalLinkService.Create("Zgłoszenie", "https://jira.example.com/browse/MN-12")]
+        }
+    ];
+    store.SaveProject(project);
+
+    var note = store.CreateNote("Notatka z linkiem");
+    note.ExternalLinks = [ExternalLinkService.Create("Przestrzeń", "https://docs.example.com/space")];
+    note.Body = "- [ ] Zadanie notatki";
+    note.Checklist = FrontMatter.Parse(note.Body).Checklist;
+    note.Checklist[0].Id = "task-note-1";
+    note.Checklist[0].Priority = 800;
+    note.Checklist[0].ExternalLinks = [ExternalLinkService.Create("Jira", "https://jira.example.com/browse/MN-13")];
+    store.SaveNote(note);
+
+    var person = store.CreatePerson("Anna Link");
+    person.ExternalLinks = [ExternalLinkService.Create("Profil", "https://people.example.com/anna")];
+    store.SavePerson(person);
+
+    var loadedProject = store.LoadProjects().Single(item => item.Id == project.Id);
+    var loadedNote = store.LoadNotes().Single(item => item.Id == note.Id);
+    var loadedPerson = store.LoadPeople().Single(item => item.Id == person.Id);
+    Equal("https://jira.example.com/browse/MN-12", loadedProject.ExternalLinks.Single().Url);
+    Equal("task-project-1", loadedProject.Checklist.Single().Id);
+    Equal(700, loadedProject.Checklist.Single().Priority);
+    Equal("https://jira.example.com/browse/MN-13", loadedNote.Checklist.Single().ExternalLinks.Single().Url);
+    Equal("https://people.example.com/anna", loadedPerson.ExternalLinks.Single().Url);
+    True(File.ReadAllText(note.FilePath).Contains("<!-- task-id: task-note-1 -->", StringComparison.Ordinal));
+    True(File.ReadAllText(note.FilePath).Contains("<!-- links-b64:", StringComparison.Ordinal));
+    Throws<FormatException>(() => ExternalLinkService.Create("Plik", "file:///tmp/secret"));
+    Throws<FormatException>(() => ExternalLinkService.Create("Skrypt", "javascript:alert(1)"));
+}
+
+static void SchemaThreeProjectMigration()
+{
+    using var temp = new TemporaryDirectory();
+    var source = Path.Combine(temp.Path, "legacy-project-context");
+    var projects = Path.Combine(source, "Projects");
+    Directory.CreateDirectory(projects);
+    var legacyPath = Path.Combine(projects, "stary-projekt.md");
+    var legacy = """
+        ---
+        id: legacy-project
+        type: project
+        slug: stary-projekt
+        tags: stary-projekt
+        created: 2025-01-01T10:00:00.0000000+00:00
+        modified: 2025-01-01T10:00:00.0000000+00:00
+        ---
+        # Stary projekt
+
+        **Cel wdrożenia**
+
+        - [ ] Pierwszy krok
+
+        Dalszy kontekst.
+        """;
+    File.WriteAllText(legacyPath, legacy);
+
+    var migrated = LibrarySchemaService.Prepare(source);
+    Equal(3, migrated.Manifest.SchemaVersion);
+    var project = new MarkdownStore(migrated.Root).LoadProjects().Single();
+    Equal(1, project.Checklist.Count);
+    True(!string.IsNullOrWhiteSpace(project.Checklist[0].Id));
+    True(project.Checklist[0].Priority.HasValue);
+    False(project.Description.Contains("[ ]", StringComparison.Ordinal));
+    False(project.Description.Contains("**", StringComparison.Ordinal));
+    True(project.Description.Contains("Cel wdrożenia", StringComparison.Ordinal));
+    True(project.Description.Contains("Dalszy kontekst", StringComparison.Ordinal));
+    var migratedText = File.ReadAllText(project.FilePath);
+    Equal(1, CountOccurrences(migratedText, FrontMatter.ProjectTasksHeading));
+    Equal(1, CountOccurrences(migratedText, "- [ ] Pierwszy krok"));
+    Equal(legacy, File.ReadAllText(legacyPath));
+}
+
+static void CollapsedGraphFoldersRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var stateStore = new AppStateStore(temp.Path);
+    stateStore.Save(new AppState
+    {
+        DataFolder = temp.Path,
+        CollapsedGraphFolderIds = ["folder-a", "folder-b"]
+    });
+    var loaded = stateStore.Load();
+    Equal(2, loaded.CollapsedGraphFolderIds.Count);
+    Equal("folder-a", loaded.CollapsedGraphFolderIds[0]);
+}
+
+static void StarLayoutIsDeterministic()
+{
+    var system = new Project { Id = "system", Name = "System", Slug = "system", ItemType = ProjectItemType.System };
+    var productA = new Project { Id = "product-a", Name = "Alfa", Slug = "alfa", ParentId = system.Id, ItemType = ProjectItemType.Product };
+    var productB = new Project { Id = "product-b", Name = "Beta", Slug = "beta", SystemIds = [system.Id], ItemType = ProjectItemType.Product };
+    var subsystemA = new Project { Id = "sub-a", Name = "Napęd", Slug = "naped", ParentId = productA.Id, ItemType = ProjectItemType.Subsystem };
+    var subsystemB = new Project { Id = "sub-b", Name = "Sterowanie", Slug = "sterowanie", ParentId = productA.Id, ItemType = ProjectItemType.Subsystem };
+    var componentA = new Project { Id = "comp-a", Name = "Silnik", Slug = "silnik", ParentId = subsystemA.Id, ItemType = ProjectItemType.Component };
+    var componentB = new Project { Id = "comp-b", Name = "Falownik", Slug = "falownik", ParentId = subsystemA.Id, ItemType = ProjectItemType.Component };
+    var general = new Project { Id = "general", Name = "Ogólny", Slug = "ogolny", ItemType = ProjectItemType.Project };
+    var projects = new[] { system, productA, productB, subsystemA, subsystemB, componentA, componentB, general };
+    var notes = new[]
+    {
+        new Note { Id = "note-a", Title = "Spotkanie", Tags = [componentA.Slug] },
+        new Note { Id = "note-b", Title = "Decyzja", Tags = [productB.Slug] }
+    };
+    var first = LayoutService.CreateStarLayout(projects, notes);
+    var second = LayoutService.CreateStarLayout(projects, notes);
+    Equal(projects.Length + notes.Length, first.Count);
+    foreach (var pair in first)
+    {
+        Equal(pair.Value.X, second[pair.Key].X);
+        Equal(pair.Value.Y, second[pair.Key].Y);
+    }
+
+    var all = projects.Select(project => (project.Id, Width: 184d, Height: 76d))
+        .Concat(notes.Select(note => (note.Id, Width: 166d, Height: 58d))).ToList();
+    for (var leftIndex = 0; leftIndex < all.Count; leftIndex++)
+    {
+        for (var rightIndex = leftIndex + 1; rightIndex < all.Count; rightIndex++)
+        {
+            var left = first[all[leftIndex].Id];
+            var right = first[all[rightIndex].Id];
+            var overlaps = Math.Abs(left.X - right.X) < (all[leftIndex].Width + all[rightIndex].Width) / 2 &&
+                           Math.Abs(left.Y - right.Y) < (all[leftIndex].Height + all[rightIndex].Height) / 2;
+            False(overlaps, $"Kafelki {all[leftIndex].Id} i {all[rightIndex].Id} nachodzą na siebie.");
+        }
+    }
+}
+
+static void AdvancedGraphControlsAreWired()
+{
+    var root = FindRepositoryRoot();
+    var view = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml"));
+    var code = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml.cs"));
+    var model = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "ViewModels", "MainViewModel.cs"));
+    True(view.Contains("Click=\"OnArrangeGraphClick\"", StringComparison.Ordinal));
+    True(code.Contains("BeginMarquee", StringComparison.Ordinal));
+    True(code.Contains("MoveNodes(targets, recordUndo: true)", StringComparison.Ordinal));
+    True(code.Contains("ToggleGraphFolderCollapsed", StringComparison.Ordinal));
+    True(model.Contains("CollapsedGraphScopeIds", StringComparison.Ordinal));
+    True(model.Contains("AutoArrangeGraph", StringComparison.Ordinal));
+}
+
+static void InputAndZoomSafeguardsAreWired()
+{
+    var root = FindRepositoryRoot();
+    var window = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "MainWindow.axaml.cs"));
+    var platform = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Services", "PlatformKeys.cs"));
+    var graph = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml.cs"));
+    var graphView = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "GraphView.axaml"));
+    True(window.Contains("PhysicalKey.AltRight", StringComparison.Ordinal));
+    True(window.Contains("PlatformKeys.IsTextComposition", StringComparison.Ordinal));
+    True(platform.Contains("IsExactCommand", StringComparison.Ordinal));
+    True(platform.Contains("character > 127", StringComparison.Ordinal));
+    True(graph.Contains("IsExactCommand(e.KeyModifiers, shift: false)", StringComparison.Ordinal));
+    True(graph.Contains("SetZoomAt", StringComparison.Ordinal));
+    True(graph.Contains("e.ScaleOrigin", StringComparison.Ordinal));
+    True(graph.Contains("PointerTouchPadGestureMagnify", StringComparison.Ordinal));
+    True(graphView.Contains("<PinchGestureRecognizer", StringComparison.Ordinal));
+}
+
+static void TaskSourceAndLinksAreWired()
+{
+    var root = FindRepositoryRoot();
+    var view = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml"));
+    var code = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "TaskListView.axaml.cs"));
+    var links = File.ReadAllText(Path.Combine(root, "src", "MapaNotatek", "Views", "ExternalLinksEditor.cs"));
+    True(view.Contains("x:Name=\"SourceFilter\"", StringComparison.Ordinal));
+    True(code.Contains("string.Equals(task.SourceId, _selectedSourceId", StringComparison.Ordinal));
+    True(view.Contains("Click=\"OnTaskLinksClick\"", StringComparison.Ordinal));
+    True(links.Contains("Kopiuj adres", StringComparison.Ordinal));
+    False(links.Contains("Process.Start", StringComparison.Ordinal));
+    False(links.Contains("Launcher", StringComparison.Ordinal));
+}
+
+static void SystemPackageVersionsRoundTrip()
+{
+    using var temp = new TemporaryDirectory();
+    var source = Path.Combine(temp.Path, "source");
+    _ = LibrarySchemaService.Prepare(source);
+    var store = new MarkdownStore(source);
+    var system = store.CreateProject("System", null, ProjectItemType.System);
+    system.Checklist =
+    [
+        new ChecklistItem
+        {
+            Id = "transfer-task",
+            Text = "Zadanie",
+            Priority = 10,
+            ExternalLinks = [ExternalLinkService.Create("Jira", "https://jira.example.com/MN-1")]
+        }
+    ];
+    system.ExternalLinks = [ExternalLinkService.Create("Przestrzeń", "https://docs.example.com/system")];
+    store.SaveProject(system);
+    var v2Path = Path.Combine(temp.Path, "system-v2.mapanotatki");
+    var manifest = SystemTransferPackageService.Export(source, system.Id, v2Path);
+    Equal(2, manifest.Version);
+    var v2 = SystemTransferPackageService.Open(v2Path);
+    Equal("transfer-task", v2.Snapshot.Projects.Single().Checklist.Single().Id);
+    Equal(1, v2.Snapshot.Projects.Single().ExternalLinks.Count);
+
+    byte[] snapshotBytes;
+    System.Text.Json.Nodes.JsonObject manifestJson;
+    using (var archive = System.IO.Compression.ZipFile.OpenRead(v2Path))
+    {
+        using var manifestReader = new StreamReader(archive.GetEntry("manifest.json")!.Open());
+        manifestJson = System.Text.Json.Nodes.JsonNode.Parse(manifestReader.ReadToEnd())!.AsObject();
+        using var snapshotReader = new StreamReader(archive.GetEntry("snapshot.json")!.Open());
+        var snapshotJson = System.Text.Json.Nodes.JsonNode.Parse(snapshotReader.ReadToEnd())!.AsObject();
+        foreach (var projectNode in snapshotJson["projects"]!.AsArray())
+        {
+            var projectObject = projectNode!.AsObject();
+            projectObject.Remove("externalLinks");
+            foreach (var taskNode in projectObject["checklist"]!.AsArray())
+            {
+                taskNode!.AsObject().Remove("id");
+                taskNode.AsObject().Remove("externalLinks");
+            }
+        }
+        snapshotBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(snapshotJson);
+    }
+
+    manifestJson["version"] = 1;
+    var snapshotEntry = manifestJson["files"]!.AsArray()
+        .Select(node => node!.AsObject())
+        .Single(node => string.Equals((string?)node["path"], "snapshot.json", StringComparison.OrdinalIgnoreCase));
+    snapshotEntry["bytes"] = snapshotBytes.LongLength;
+    snapshotEntry["sha256"] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(snapshotBytes)).ToLowerInvariant();
+    var manifestBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(manifestJson);
+    var v1Path = Path.Combine(temp.Path, "system-v1.mapanotatki");
+    using (var stream = File.Create(v1Path))
+    using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create))
+    {
+        var snapshotZipEntry = archive.CreateEntry("snapshot.json");
+        using (var output = snapshotZipEntry.Open()) output.Write(snapshotBytes);
+        var manifestZipEntry = archive.CreateEntry("manifest.json");
+        using (var output = manifestZipEntry.Open()) output.Write(manifestBytes);
+    }
+
+    var v1 = SystemTransferPackageService.Open(v1Path);
+    Equal(1, v1.Manifest.Version);
+    var legacyTask = v1.Snapshot.Projects.Single().Checklist.Single();
+    True(!string.IsNullOrWhiteSpace(legacyTask.Id));
+    Equal(0, legacyTask.ExternalLinks.Count);
+}
+
 static string FindRepositoryRoot()
 {
     var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -1758,6 +2028,11 @@ static int CountOccurrences(string text, string value)
 
     return count;
 }
+
+static string VisibleBody(string body) => string.Join("\n",
+    body.Replace("\r\n", "\n", StringComparison.Ordinal)
+        .Split('\n')
+        .Select(PersonTagService.StripTaskMetadata));
 
 static void True(bool condition, string? message = null)
 {

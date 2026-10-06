@@ -5,7 +5,7 @@ namespace MapaNotatek.Services;
 
 public static class LibrarySchemaService
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     public const string ManifestFileName = "library.json";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -72,6 +72,15 @@ public static class LibrarySchemaService
             BackupService.RestoreCopy(transfer, destination);
             var store = new MarkdownStore(destination);
             var projects = store.LoadProjects();
+            var notes = store.LoadNotes();
+            var duplicateIds = projects.Select(project => project.Id)
+                .Concat(notes.Select(note => note.Id))
+                .GroupBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateIds is not null)
+            {
+                throw new InvalidDataException($"Migracja wykryła powtórzony identyfikator: {duplicateIds.Key}");
+            }
             foreach (var project in projects.Where(SupportsSystemMembership))
             {
                 var systems = FindAncestorSystems(project, projects);
@@ -79,9 +88,18 @@ public static class LibrarySchemaService
                 {
                     continue;
                 }
-
                 project.SystemIds = project.SystemIds.Concat(systems).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+
+            NormalizeTaskIdentityAndOrder(projects, notes);
+            foreach (var project in projects)
+            {
+                project.Description = FrontMatter.ExtractProjectContext(project.Description);
                 store.SaveProject(project);
+            }
+            foreach (var note in notes)
+            {
+                store.SaveNote(note);
             }
 
             ValidateMigratedLibrary(store);
@@ -106,6 +124,31 @@ public static class LibrarySchemaService
 
     private static bool SupportsSystemMembership(Project project) =>
         project.ItemType is ProjectItemType.Product or ProjectItemType.Subsystem or ProjectItemType.Component;
+
+    private static void NormalizeTaskIdentityAndOrder(
+        IEnumerable<Project> projects,
+        IEnumerable<Note> notes)
+    {
+        var tasks = projects.SelectMany(project => project.Checklist)
+            .Concat(notes.SelectMany(note => note.Checklist))
+            .OrderBy(task => task.Priority.HasValue ? 0 : 1)
+            .ThenBy(task => task.Priority)
+            .ToList();
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < tasks.Count; index++)
+        {
+            var task = tasks[index];
+            if (string.IsNullOrWhiteSpace(task.Id) || !usedIds.Add(task.Id))
+            {
+                do
+                {
+                    task.Id = Guid.NewGuid().ToString("N");
+                } while (!usedIds.Add(task.Id));
+            }
+
+            task.Priority = index * 100;
+        }
+    }
 
     private static List<string> FindAncestorSystems(Project project, IReadOnlyCollection<Project> projects)
     {
@@ -145,6 +188,15 @@ public static class LibrarySchemaService
         if (projects.SelectMany(item => item.SystemIds).Any(id => !systems.Contains(id)))
         {
             throw new InvalidDataException("Migracja wykryła przypisanie do nieistniejącego systemu.");
+        }
+
+        var tasks = projects.SelectMany(project => project.Checklist)
+            .Concat(notes.SelectMany(note => note.Checklist))
+            .ToList();
+        if (tasks.Any(task => string.IsNullOrWhiteSpace(task.Id) || !task.Priority.HasValue) ||
+            tasks.Select(task => task.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != tasks.Count)
+        {
+            throw new InvalidDataException("Migracja nie utworzyła stabilnej kolejności zadań.");
         }
     }
 

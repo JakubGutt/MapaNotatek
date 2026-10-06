@@ -657,9 +657,13 @@ public static class SystemMergeService
         AddScalarConflict(result, sourceId, "archived", "Archiwizacja", baseline.IsArchived, mine.IsArchived, theirs.IsArchived);
         AddListConflict(result, sourceId, "people", "Osoby", baseline.People, mine.People, theirs.People);
         AddListConflict(result, sourceId, "systems", "Przynależność do systemów", baseline.SystemIds, mine.SystemIds, theirs.SystemIds);
+        AddScalarConflict(result, sourceId, "links", "Linki zewnętrzne",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks));
+        AddScalarConflict(result, sourceId, "tasks", "Zadania",
+            SerializeTasks(baseline.Checklist), SerializeTasks(mine.Checklist), SerializeTasks(theirs.Checklist));
         result.AddRange(ThreeWayTextMerge.Merge(
             baseline.Description, mine.Description, theirs.Description,
-            sourceId + ":description", "Treść projektu / taski").Conflicts);
+            sourceId + ":description", "Cel i kontekst").Conflicts);
         return result;
     }
 
@@ -674,9 +678,13 @@ public static class SystemMergeService
         AddListConflict(result, sourceId, "tags", "Projekty i tagi", baseline.Tags, mine.Tags, theirs.Tags);
         AddListConflict(result, sourceId, "people", "Osoby", baseline.People, mine.People, theirs.People);
         AddListConflict(result, sourceId, "relations", "Powiązane notatki", baseline.RelatedNoteIds, mine.RelatedNoteIds, theirs.RelatedNoteIds);
+        AddScalarConflict(result, sourceId, "links", "Linki zewnętrzne",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks));
+        AddScalarConflict(result, sourceId, "tasks", "Zadania",
+            SerializeTasks(baseline.Checklist), SerializeTasks(mine.Checklist), SerializeTasks(theirs.Checklist));
         result.AddRange(ThreeWayTextMerge.Merge(
             baseline.Body, mine.Body, theirs.Body,
-            sourceId + ":body", "Treść notatki / taski").Conflicts);
+            sourceId + ":body", "Treść notatki").Conflicts);
         return result;
     }
 
@@ -690,6 +698,8 @@ public static class SystemMergeService
         AddScalarConflict(result, sourceId, "name", "Nazwa osoby", baseline.Name, mine.Name, theirs.Name);
         AddScalarConflict(result, sourceId, "role", "Rola", baseline.Role, mine.Role, theirs.Role);
         AddScalarConflict(result, sourceId, "avatar", "Zdjęcie", baseline.AvatarPath, mine.AvatarPath, theirs.AvatarPath);
+        AddScalarConflict(result, sourceId, "links", "Linki zewnętrzne",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks));
         result.AddRange(ThreeWayTextMerge.Merge(
             baseline.Description, mine.Description, theirs.Description,
             sourceId + ":description", "Opis osoby").Conflicts);
@@ -1064,10 +1074,13 @@ public static class SystemMergeService
         result.IsArchived = MergeScalar(change, "archived", baseline.IsArchived, mine.IsArchived, theirs.IsArchived, resolutions);
         result.People = MergeList(change, "people", baseline.People, mine.People, theirs.People, resolutions);
         result.SystemIds = MergeList(change, "systems", baseline.SystemIds, mine.SystemIds, theirs.SystemIds, resolutions);
+        result.ExternalLinks = DeserializeLinks(MergeScalar(change, "links",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks), resolutions));
         result.Description = ThreeWayTextMerge.Merge(
             baseline.Description, mine.Description, theirs.Description,
-            change.SourceId + ":description", "Treść projektu / taski").Resolve(resolutions);
-        result.Checklist = FrontMatter.Parse(result.Description).Checklist.Select(TransferModelCloner.From).ToList();
+            change.SourceId + ":description", "Cel i kontekst").Resolve(resolutions);
+        result.Checklist = DeserializeTasks(MergeScalar(change, "tasks",
+            SerializeTasks(baseline.Checklist), SerializeTasks(mine.Checklist), SerializeTasks(theirs.Checklist), resolutions));
         return result;
     }
 
@@ -1085,10 +1098,13 @@ public static class SystemMergeService
         result.Tags = MergeList(change, "tags", baseline.Tags, mine.Tags, theirs.Tags, resolutions);
         result.People = MergeList(change, "people", baseline.People, mine.People, theirs.People, resolutions);
         result.RelatedNoteIds = MergeList(change, "relations", baseline.RelatedNoteIds, mine.RelatedNoteIds, theirs.RelatedNoteIds, resolutions);
+        result.ExternalLinks = DeserializeLinks(MergeScalar(change, "links",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks), resolutions));
         result.Body = ThreeWayTextMerge.Merge(
             baseline.Body, mine.Body, theirs.Body,
-            change.SourceId + ":body", "Treść notatki / taski").Resolve(resolutions);
-        result.Checklist = FrontMatter.Parse(result.Body).Checklist.Select(TransferModelCloner.From).ToList();
+            change.SourceId + ":body", "Treść notatki").Resolve(resolutions);
+        result.Checklist = DeserializeTasks(MergeScalar(change, "tasks",
+            SerializeTasks(baseline.Checklist), SerializeTasks(mine.Checklist), SerializeTasks(theirs.Checklist), resolutions));
         return result;
     }
 
@@ -1108,6 +1124,8 @@ public static class SystemMergeService
             baseline.Description, mine.Description, theirs.Description,
             change.SourceId + ":description", "Opis osoby").Resolve(resolutions);
         result.AvatarPath = MergeScalar(change, "avatar", baseline.AvatarPath, mine.AvatarPath, theirs.AvatarPath, resolutions);
+        result.ExternalLinks = DeserializeLinks(MergeScalar(change, "links",
+            SerializeLinks(baseline.ExternalLinks), SerializeLinks(mine.ExternalLinks), SerializeLinks(theirs.ExternalLinks), resolutions));
         return result;
     }
 
@@ -1258,8 +1276,13 @@ public static class SystemMergeService
             mapped.SystemIds = project.SystemIds.Where(tracking.ProjectMap.ContainsKey)
                 .Select(id => tracking.ProjectMap[id]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             mapped.People = MapPeople(project.People, sourcePersonSlugs);
-            mapped.Description = RewriteTaskPeople(project.Description, sourcePersonSlugs);
-            mapped.Checklist = FrontMatter.Parse(mapped.Description).Checklist.Select(TransferModelCloner.From).ToList();
+            mapped.Description = project.Description;
+            mapped.Checklist = project.Checklist.Select(task =>
+            {
+                var clone = Clone(task);
+                clone.People = MapPeople(task.People, sourcePersonSlugs);
+                return clone;
+            }).ToList();
             result.Projects.Add(mapped);
         }
         foreach (var note in source.Notes)
@@ -1273,7 +1296,12 @@ public static class SystemMergeService
             mapped.RelatedNoteIds = note.RelatedNoteIds.Where(tracking.NoteMap.ContainsKey)
                 .Select(id => tracking.NoteMap[id]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             mapped.Body = RewriteTaskPeople(RewriteAssetPath(note.Body, note.Id, localId), sourcePersonSlugs);
-            mapped.Checklist = FrontMatter.Parse(mapped.Body).Checklist.Select(TransferModelCloner.From).ToList();
+            mapped.Checklist = note.Checklist.Select(task =>
+            {
+                var clone = Clone(task);
+                clone.People = MapPeople(task.People, sourcePersonSlugs);
+                return clone;
+            }).ToList();
             result.Notes.Add(mapped);
         }
         foreach (var (sourceId, position) in source.Positions)
@@ -1307,7 +1335,7 @@ public static class SystemMergeService
     private static TransferProject FromProject(Project project) => new()
     {
         Id = project.Id, Name = project.Name, Slug = project.Slug, Description = project.Description,
-        People = project.People.ToList(), SystemIds = project.SystemIds.ToList(),
+        People = project.People.ToList(), ExternalLinks = ExternalLinkService.Clone(project.ExternalLinks), SystemIds = project.SystemIds.ToList(),
         Checklist = project.Checklist.Select(TransferModelCloner.From).ToList(), IsArchived = project.IsArchived,
         ParentId = project.ParentId, ItemType = project.ItemType, Created = project.Created, Modified = project.Modified
     };
@@ -1315,6 +1343,7 @@ public static class SystemMergeService
     private static TransferNote FromNote(Note note) => new()
     {
         Id = note.Id, Title = note.Title, Body = note.Body, Tags = note.Tags.ToList(), People = note.People.ToList(),
+        ExternalLinks = ExternalLinkService.Clone(note.ExternalLinks),
         RelatedNoteIds = note.RelatedNoteIds.ToList(), Checklist = note.Checklist.Select(TransferModelCloner.From).ToList(),
         Created = note.Created, Modified = note.Modified
     };
@@ -1322,13 +1351,13 @@ public static class SystemMergeService
     private static TransferPerson FromPerson(Person person) => new()
     {
         Id = person.Id, Name = person.Name, Slug = person.Slug, Role = person.Role,
-        Description = person.Description, AvatarPath = person.AvatarPath, Created = person.Created, Modified = person.Modified
+        Description = person.Description, AvatarPath = person.AvatarPath, ExternalLinks = ExternalLinkService.Clone(person.ExternalLinks), Created = person.Created, Modified = person.Modified
     };
 
     private static Project ToProject(TransferProject item) => new()
     {
         Id = item.Id, Name = item.Name, Slug = item.Slug, Description = item.Description,
-        People = item.People.ToList(), SystemIds = item.SystemIds.ToList(),
+        People = item.People.ToList(), ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks), SystemIds = item.SystemIds.ToList(),
         Checklist = item.Checklist.Select(TransferModelCloner.To).ToList(), IsArchived = item.IsArchived,
         ParentId = item.ParentId, ItemType = item.ItemType, Created = item.Created, Modified = item.Modified
     };
@@ -1336,6 +1365,7 @@ public static class SystemMergeService
     private static Note ToNote(TransferNote item) => new()
     {
         Id = item.Id, Title = item.Title, Body = item.Body, Tags = item.Tags.ToList(), People = item.People.ToList(),
+        ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks),
         RelatedNoteIds = item.RelatedNoteIds.ToList(), Checklist = item.Checklist.Select(TransferModelCloner.To).ToList(),
         Created = item.Created, Modified = item.Modified
     };
@@ -1343,13 +1373,13 @@ public static class SystemMergeService
     private static Person ToPerson(TransferPerson item) => new()
     {
         Id = item.Id, Name = item.Name, Slug = item.Slug, Role = item.Role,
-        Description = item.Description, AvatarPath = item.AvatarPath, Created = item.Created, Modified = item.Modified
+        Description = item.Description, AvatarPath = item.AvatarPath, ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks), Created = item.Created, Modified = item.Modified
     };
 
     private static void Apply(TransferProject source, Project destination)
     {
         destination.Name = source.Name; destination.Slug = source.Slug; destination.Description = source.Description;
-        destination.People = source.People.ToList(); destination.SystemIds = source.SystemIds.ToList();
+        destination.People = source.People.ToList(); destination.ExternalLinks = ExternalLinkService.Clone(source.ExternalLinks); destination.SystemIds = source.SystemIds.ToList();
         destination.Checklist = source.Checklist.Select(TransferModelCloner.To).ToList(); destination.IsArchived = source.IsArchived;
         destination.ParentId = source.ParentId; destination.ItemType = source.ItemType;
     }
@@ -1357,14 +1387,14 @@ public static class SystemMergeService
     private static void Apply(TransferNote source, Note destination)
     {
         destination.Title = source.Title; destination.Body = source.Body; destination.Tags = source.Tags.ToList();
-        destination.People = source.People.ToList(); destination.RelatedNoteIds = source.RelatedNoteIds.ToList();
+        destination.People = source.People.ToList(); destination.ExternalLinks = ExternalLinkService.Clone(source.ExternalLinks); destination.RelatedNoteIds = source.RelatedNoteIds.ToList();
         destination.Checklist = source.Checklist.Select(TransferModelCloner.To).ToList();
     }
 
     private static void Apply(TransferPerson source, Person destination)
     {
         destination.Name = source.Name; destination.Slug = source.Slug; destination.Role = source.Role;
-        destination.Description = source.Description; destination.AvatarPath = source.AvatarPath;
+        destination.Description = source.Description; destination.AvatarPath = source.AvatarPath; destination.ExternalLinks = ExternalLinkService.Clone(source.ExternalLinks);
     }
 
     private static void CopyAssets(LoadedSystemTransferPackage package, string sourceId, string localId, string root)
@@ -1537,14 +1567,15 @@ public static class SystemMergeService
             {
                 item.Name, item.Slug, item.Description,
                 People = Sorted(item.People), Systems = Sorted(item.SystemIds), item.IsArchived,
-                item.ParentId, item.ItemType
+                Links = SerializeLinks(item.ExternalLinks), Tasks = SerializeTasks(item.Checklist), item.ParentId, item.ItemType
             },
             TransferNote item => new
             {
                 item.Title, item.Body, Tags = Sorted(item.Tags), People = Sorted(item.People),
-                Relations = Sorted(item.RelatedNoteIds)
+                Relations = Sorted(item.RelatedNoteIds), Links = SerializeLinks(item.ExternalLinks),
+                Tasks = SerializeTasks(item.Checklist)
             },
-            TransferPerson item => new { item.Name, item.Slug, item.Role, item.Description, item.AvatarPath },
+            TransferPerson item => new { item.Name, item.Slug, item.Role, item.Description, item.AvatarPath, Links = SerializeLinks(item.ExternalLinks) },
             _ => value!
         };
         return JsonSerializer.Serialize(normalized, SystemTransferPackageService.JsonOptions);
@@ -1557,6 +1588,18 @@ public static class SystemMergeService
         left.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(right);
 
     private static string Display<T>(T value) => value?.ToString() ?? "(brak)";
+
+    private static string SerializeLinks(IEnumerable<ExternalLink>? links) =>
+        JsonSerializer.Serialize(ExternalLinkService.Clone(links), SystemTransferPackageService.JsonOptions);
+
+    private static List<ExternalLink> DeserializeLinks(string value) =>
+        ExternalLinkService.Clone(JsonSerializer.Deserialize<List<ExternalLink>>(value, SystemTransferPackageService.JsonOptions));
+
+    private static string SerializeTasks(IEnumerable<TransferChecklistItem>? tasks) =>
+        JsonSerializer.Serialize(tasks ?? [], SystemTransferPackageService.JsonOptions);
+
+    private static List<TransferChecklistItem> DeserializeTasks(string value) =>
+        JsonSerializer.Deserialize<List<TransferChecklistItem>>(value, SystemTransferPackageService.JsonOptions) ?? [];
 
     private static T Clone<T>(T value) =>
         JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, SystemTransferPackageService.JsonOptions),

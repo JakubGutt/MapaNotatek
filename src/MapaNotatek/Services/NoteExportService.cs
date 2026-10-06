@@ -32,7 +32,7 @@ public static class NoteExportService
             builder.AppendLine();
         }
 
-        builder.Append(note.Body ?? string.Empty);
+        builder.Append(CleanBodyForExport(note.Body));
         if (note.Checklist.Count > 0 && !ContainsChecklist(note.Body))
         {
             builder.AppendLine();
@@ -43,6 +43,8 @@ public static class NoteExportService
                 builder.AppendLine($"- [{(item.IsDone ? "x" : " ")}] {item.Text}");
             }
         }
+
+        AppendExternalLinksMarkdown(builder, note);
 
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
@@ -73,7 +75,8 @@ public static class NoteExportService
             builder.AppendLine();
         }
 
-        builder.Append(StripInlineMarkdown(note.Body ?? string.Empty));
+        builder.Append(StripInlineMarkdown(CleanBodyForExport(note.Body)));
+        AppendExternalLinksPlainText(builder, note);
         return builder.ToString().TrimEnd();
     }
 
@@ -216,7 +219,7 @@ public static class NoteExportService
             body.Add(DocxParagraph("Tagi: " + string.Join(", ", note.Tags), null, w, color: "667085", italic: true));
         }
 
-        var lines = (note.Body ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var lines = BuildExportBody(note).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var inCodeBlock = false;
         for (var index = 0; index < lines.Length; index++)
         {
@@ -1000,7 +1003,7 @@ public static class NoteExportService
             after: note.Tags.Count > 0 ? 9 : 18);
         DrawTags();
 
-        var lines = (note.Body ?? string.Empty).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        var lines = BuildExportBody(note).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         for (var index = 0; index < lines.Length; index++)
         {
             var rawLine = lines[index];
@@ -1210,7 +1213,7 @@ public static class NoteExportService
     private static string BuildHtmlBody(Note note)
     {
         var builder = new StringBuilder();
-        var lines = (note.Body ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var lines = BuildExportBody(note).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var listKind = string.Empty;
         var inCodeBlock = false;
 
@@ -1536,6 +1539,72 @@ public static class NoteExportService
         result = Regex.Replace(result, @"`([^`]+)`", "$1");
         result = Regex.Replace(result, @"\[\[([^\]]+)\]\]", "$1");
         return result;
+    }
+
+    private static string BuildExportBody(Note note)
+    {
+        var builder = new StringBuilder(CleanBodyForExport(note.Body).TrimEnd());
+        AppendExternalLinksMarkdown(builder, note);
+        return builder.ToString();
+    }
+
+    private static string CleanBodyForExport(string? body)
+    {
+        var normalized = (body ?? string.Empty)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        return string.Join('\n', normalized.Split('\n').Select(PersonTagService.StripTaskMetadata));
+    }
+
+    private static void AppendExternalLinksMarkdown(StringBuilder builder, Note note)
+    {
+        var entries = EnumerateExternalLinks(note).ToList();
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine();
+        builder.AppendLine("## Linki zewnętrzne");
+        foreach (var entry in entries)
+        {
+            builder.Append("- ").Append(entry.Label).Append(": ").AppendLine(entry.Url);
+        }
+    }
+
+    private static void AppendExternalLinksPlainText(StringBuilder builder, Note note)
+    {
+        var entries = EnumerateExternalLinks(note).ToList();
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine();
+        builder.AppendLine("Linki zewnętrzne:");
+        foreach (var entry in entries)
+        {
+            builder.Append("- ").Append(entry.Label).Append(": ").AppendLine(entry.Url);
+        }
+    }
+
+    private static IEnumerable<(string Label, string Url)> EnumerateExternalLinks(Note note)
+    {
+        foreach (var link in note.ExternalLinks)
+        {
+            yield return (link.Label, link.Url);
+        }
+
+        foreach (var task in note.Checklist)
+        {
+            foreach (var link in task.ExternalLinks)
+            {
+                var taskLabel = string.IsNullOrWhiteSpace(task.Text) ? "Zadanie" : task.Text.Trim();
+                yield return ($"{taskLabel} — {link.Label}", link.Url);
+            }
+        }
     }
 
     private static bool ContainsChecklist(string? body) =>

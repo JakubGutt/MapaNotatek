@@ -12,6 +12,7 @@ Gotowa aplikacja:
 - zapisuje notatki, obrazy, historię, kopie i raport diagnostyczny wyłącznie lokalnie;
 - tworzy HTML z polityką blokującą zasoby sieciowe i osadza użyte lokalne obrazy jako dane dokumentu.
 - polecenie „Do Confluence” zapisuje rich text wyłącznie do schowka; samo niczego nie otwiera, nie publikuje i nie wysyła.
+- nazwane adresy HTTP/HTTPS są przechowywane jak zwykły tekst. Jedyną akcją w aplikacji jest skopiowanie adresu do schowka; MapaNotatek nie wywołuje launchera systemowego, przeglądarki ani API wskazanej usługi.
 
 Test regresyjny skanuje kod źródłowy pod kątem klas klientów sieciowych i kończy się błędem po ich dodaniu. Jest to strażnik architektury, nie zapora systemowa. Po zmianie zależności lub sposobu publikacji nadal trzeba przejrzeć wynikowy pakiet.
 
@@ -23,7 +24,7 @@ Notatki, projekty i profile osób są zwykłymi plikami Markdown z metadanymi w 
 
 Edytor komórkowy jest warstwą nad tym samym przenośnym formatem: po zapisie i ponownym otwarciu bloki są odtwarzane z Markdown. Interfejs nie udostępnia osobnego widoku źródłowego; dokładną treść można otrzymać przez eksport do pliku `.md`.
 
-Stan interfejsu jest przechowywany w `app-state.json`, a `library.json` identyfikuje bibliotekę i wersję jej schematu. Lokalna historia trafia do `History/` i domyślnie zachowuje do 30 wcześniejszych wersji każdego elementu. Log startowy i ostatni raport awarii, jeśli powstaną, leżą w systemowym folderze tymczasowym. Eksport raportu diagnostycznego odbywa się wyłącznie na żądanie, nie zawiera treści notatek i nie jest nigdzie wysyłany.
+Stan interfejsu, w tym zwinięte foldery grafu, jest przechowywany w `app-state.json`, a `library.json` identyfikuje bibliotekę i wersję jej schematu. Schemat 3 zapisuje linki encji w front matter, a identyfikatory i linki zadań w niewidocznych komentarzach Markdown. Lokalna historia trafia do `History/` i domyślnie zachowuje do 30 wcześniejszych wersji każdego elementu. Log startowy i ostatni raport awarii, jeśli powstaną, leżą w systemowym folderze tymczasowym. Eksport raportu diagnostycznego odbywa się wyłącznie na żądanie, nie zawiera treści notatek i nie jest nigdzie wysyłany.
 
 ## Zapis i konflikt zmian
 

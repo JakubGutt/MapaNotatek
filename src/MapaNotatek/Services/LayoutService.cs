@@ -189,6 +189,256 @@ public static class LayoutService
         }
     }
 
+    /// <summary>
+    /// Creates a deterministic product-centric star layout. Positions are calculated
+    /// for the complete requested scope, including nodes currently hidden by folders.
+    /// </summary>
+    public static Dictionary<string, GraphPosition> CreateStarLayout(
+        IReadOnlyList<Project> projects,
+        IReadOnlyList<Note> notes)
+    {
+        const double projectWidth = 184;
+        const double projectHeight = 76;
+        const double noteWidth = 166;
+        const double noteHeight = 58;
+        const double gap = 30;
+        var result = new Dictionary<string, GraphPosition>(StringComparer.OrdinalIgnoreCase);
+        var occupied = new List<(double Left, double Top, double Right, double Bottom)>();
+        var byId = projects.ToDictionary(project => project.Id, StringComparer.OrdinalIgnoreCase);
+        var depth = projects.ToDictionary(project => project.Id, project => Depth(projects, project), StringComparer.OrdinalIgnoreCase);
+
+        void Place(string id, double preferredX, double preferredY, double width, double height)
+        {
+            for (var attempt = 0; attempt < 600; attempt++)
+            {
+                var angle = attempt * 2.399963229728653;
+                var radius = attempt == 0 ? 0 : 26 * Math.Sqrt(attempt);
+                var x = Math.Clamp(preferredX + radius * Math.Cos(angle),
+                    CanvasEdgeInset + width / 2, CanvasWidth - CanvasEdgeInset - width / 2);
+                var y = Math.Clamp(preferredY + radius * Math.Sin(angle),
+                    CanvasEdgeInset + height / 2, CanvasHeight - CanvasEdgeInset - height / 2);
+                var rect = (x - width / 2 - gap, y - height / 2 - gap,
+                    x + width / 2 + gap, y + height / 2 + gap);
+                if (occupied.All(other =>
+                        rect.Item3 <= other.Left || rect.Item1 >= other.Right ||
+                        rect.Item4 <= other.Top || rect.Item2 >= other.Bottom))
+                {
+                    result[id] = new GraphPosition { Id = id, X = x, Y = y };
+                    occupied.Add((rect.Item1, rect.Item2, rect.Item3, rect.Item4));
+                    return;
+                }
+            }
+
+            PlaceAt(result, id, preferredX, preferredY);
+        }
+
+        Project? AncestorOfType(Project project, ProjectItemType type)
+        {
+            var current = project;
+            var guard = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (guard.Add(current.Id))
+            {
+                if (current.ItemType == type)
+                {
+                    return current;
+                }
+
+                if (string.IsNullOrWhiteSpace(current.ParentId) || !byId.TryGetValue(current.ParentId, out current!))
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        var systems = projects.Where(project => project.ItemType == ProjectItemType.System)
+            .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(project => project.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        Project? OwningSystem(Project product)
+        {
+            var structural = AncestorOfType(product, ProjectItemType.System);
+            if (structural is not null)
+            {
+                return structural;
+            }
+
+            return systems.Where(system => product.SystemIds.Contains(system.Id, StringComparer.OrdinalIgnoreCase))
+                .OrderBy(system => system.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(system => system.Id, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+        }
+
+        var products = projects.Where(project => project.ItemType == ProjectItemType.Product)
+            .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(project => project.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var systemProducts = systems.ToDictionary(
+            system => system.Id,
+            system => products.Where(product => OwningSystem(product)?.Id == system.Id).ToList(),
+            StringComparer.OrdinalIgnoreCase);
+        var regionRoots = systems.Cast<Project>()
+            .Concat(products.Where(product => OwningSystem(product) is null))
+            .Concat(projects.Where(project =>
+                project.ItemType is ProjectItemType.Project or ProjectItemType.Folder &&
+                AncestorOfType(project, ProjectItemType.Product) is null &&
+                AncestorOfType(project, ProjectItemType.System) is null &&
+                (string.IsNullOrWhiteSpace(project.ParentId) || !byId.ContainsKey(project.ParentId))))
+            .DistinctBy(project => project.Id, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(project => project.ItemType.SortOrder())
+            .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        if (regionRoots.Count == 0)
+        {
+            regionRoots.AddRange(projects
+                .OrderBy(project => project.ItemType.SortOrder())
+                .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Take(1));
+        }
+
+        var columns = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(regionRoots.Count)));
+        var rows = Math.Max(1, (int)Math.Ceiling(regionRoots.Count / (double)columns));
+        var xStep = Math.Min(1750, 3000d / columns);
+        var yStep = Math.Min(1750, 3000d / rows);
+        var startX = 2000 - ((columns - 1) * xStep / 2);
+        var startY = 2000 - ((rows - 1) * yStep / 2);
+        var productCenters = new Dictionary<string, (double X, double Y)>(StringComparer.OrdinalIgnoreCase);
+
+        for (var rootIndex = 0; rootIndex < regionRoots.Count; rootIndex++)
+        {
+            var root = regionRoots[rootIndex];
+            var rootX = startX + (rootIndex % columns) * xStep;
+            var rootY = startY + (rootIndex / columns) * yStep;
+            if (root.ItemType == ProjectItemType.System)
+            {
+                Place(root.Id, rootX, rootY, projectWidth, projectHeight);
+                var ownedProducts = systemProducts[root.Id];
+                var radius = Math.Max(540, ownedProducts.Count * 190 / Math.PI);
+                for (var index = 0; index < ownedProducts.Count; index++)
+                {
+                    var angle = -Math.PI / 2 + 2 * Math.PI * index / Math.Max(1, ownedProducts.Count);
+                    productCenters[ownedProducts[index].Id] =
+                        (rootX + radius * Math.Cos(angle), rootY + radius * Math.Sin(angle));
+                }
+            }
+            else if (root.ItemType == ProjectItemType.Product)
+            {
+                productCenters[root.Id] = (rootX, rootY);
+            }
+            else
+            {
+                Place(root.Id, rootX, rootY, projectWidth, projectHeight);
+            }
+        }
+
+        foreach (var product in products)
+        {
+            if (!productCenters.TryGetValue(product.Id, out var center))
+            {
+                center = (2000, 2000);
+                productCenters[product.Id] = center;
+            }
+
+            Place(product.Id, center.X, center.Y, projectWidth, projectHeight);
+            var members = projects.Where(project => AncestorOfType(project, ProjectItemType.Product)?.Id == product.Id)
+                .Where(project => project.Id != product.Id)
+                .ToList();
+            var subsystems = members.Where(project => project.ItemType == ProjectItemType.Subsystem)
+                .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            var subsystemAngles = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < subsystems.Count; index++)
+            {
+                var angle = -Math.PI / 2 + 2 * Math.PI * index / Math.Max(1, subsystems.Count);
+                subsystemAngles[subsystems[index].Id] = angle;
+                Place(subsystems[index].Id,
+                    center.X + 270 * Math.Cos(angle), center.Y + 270 * Math.Sin(angle),
+                    projectWidth, projectHeight);
+            }
+
+            var components = members.Where(project => project.ItemType == ProjectItemType.Component)
+                .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            var directComponents = components.Where(component =>
+                AncestorOfType(component, ProjectItemType.Subsystem) is null).ToList();
+            for (var index = 0; index < directComponents.Count; index++)
+            {
+                var angle = -Math.PI / 2 + 2 * Math.PI * index / Math.Max(1, directComponents.Count);
+                Place(directComponents[index].Id,
+                    center.X + 490 * Math.Cos(angle), center.Y + 490 * Math.Sin(angle),
+                    projectWidth, projectHeight);
+            }
+
+            foreach (var subsystem in subsystems)
+            {
+                var sectorComponents = components.Where(component =>
+                    AncestorOfType(component, ProjectItemType.Subsystem)?.Id == subsystem.Id).ToList();
+                var baseAngle = subsystemAngles[subsystem.Id];
+                for (var index = 0; index < sectorComponents.Count; index++)
+                {
+                    var offset = (index - (sectorComponents.Count - 1) / 2d) * 0.18;
+                    var angle = baseAngle + offset;
+                    Place(sectorComponents[index].Id,
+                        center.X + 500 * Math.Cos(angle), center.Y + 500 * Math.Sin(angle),
+                        projectWidth, projectHeight);
+                }
+            }
+
+            var otherMembers = members.Where(member => !result.ContainsKey(member.Id))
+                .OrderBy(member => depth[member.Id])
+                .ThenBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            for (var index = 0; index < otherMembers.Count; index++)
+            {
+                var angle = -Math.PI / 2 + 2 * Math.PI * index / Math.Max(1, otherMembers.Count);
+                Place(otherMembers[index].Id,
+                    center.X + 620 * Math.Cos(angle), center.Y + 620 * Math.Sin(angle),
+                    projectWidth, projectHeight);
+            }
+        }
+
+        var leftovers = projects.Where(project => !result.ContainsKey(project.Id))
+            .OrderBy(project => depth[project.Id])
+            .ThenBy(project => project.ItemType.SortOrder())
+            .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        for (var index = 0; index < leftovers.Count; index++)
+        {
+            GraphPosition? parent = null;
+            var parentId = leftovers[index].ParentId;
+            if (!string.IsNullOrWhiteSpace(parentId) && result.TryGetValue(parentId, out var parentPosition))
+            {
+                parent = parentPosition;
+            }
+            var angle = index * 2.399963229728653;
+            Place(leftovers[index].Id,
+                (parent?.X ?? 2000) + 260 * Math.Cos(angle),
+                (parent?.Y ?? 2000) + 260 * Math.Sin(angle),
+                projectWidth, projectHeight);
+        }
+
+        var noteOwners = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var note in notes.OrderBy(note => note.Title, StringComparer.CurrentCultureIgnoreCase).ThenBy(note => note.Id))
+        {
+            var owner = projects.Where(project => result.ContainsKey(project.Id) && NoteLinksTo(note, project))
+                .OrderByDescending(project => depth[project.Id])
+                .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+                .FirstOrDefault();
+            var productOwner = owner is null ? null : AncestorOfType(owner, ProjectItemType.Product);
+            var anchorOwner = productOwner ?? owner;
+            var ownerKey = anchorOwner?.Id ?? string.Empty;
+            noteOwners.TryGetValue(ownerKey, out var index);
+            noteOwners[ownerKey] = index + 1;
+            var anchor = anchorOwner is null ? new GraphPosition { X = 2000, Y = 2000 } : result[anchorOwner.Id];
+            var ring = productOwner is not null
+                ? 720 + 90 * (index / 10)
+                : owner is null ? 760 : 240 + 90 * (index / 8);
+            var angle = -Math.PI / 2 + 2 * Math.PI * (index % 8) / 8 + (index / 8) * 0.17;
+            Place(note.Id,
+                anchor.X + ring * Math.Cos(angle), anchor.Y + ring * Math.Sin(angle),
+                noteWidth, noteHeight);
+        }
+
+        return result;
+    }
+
     private static int Depth(IReadOnlyList<Project> projects, Project project)
     {
         var depth = 0;

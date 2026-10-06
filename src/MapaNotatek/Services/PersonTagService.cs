@@ -5,12 +5,20 @@ namespace MapaNotatek.Services;
 
 public static class PersonTagService
 {
-    private static readonly Regex TaskMetadata = new(
-        @"\s*<!--\s*people:\s*(?<people>[^>]*)-->\s*$",
+    private static readonly Regex TaskPeopleMetadata = new(
+        @"\s*<!--\s*people:\s*(?<people>[^>]*)-->\s*",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex TaskPriorityMetadata = new(
         @"\s*<!--\s*priority:\s*(?<priority>-?\d+)\s*-->\s*",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex TaskIdMetadata = new(
+        @"\s*<!--\s*task-id:\s*(?<id>[a-zA-Z0-9_-]+)\s*-->\s*",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex TaskLinksMetadata = new(
+        @"\s*<!--\s*links-b64:\s*(?<links>[a-zA-Z0-9_-]+)\s*-->\s*",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static List<string> Parse(string? value)
@@ -79,13 +87,16 @@ public static class PersonTagService
 
     public static string StripTaskMetadata(string? text)
     {
-        var withoutPeople = TaskMetadata.Replace(text ?? string.Empty, string.Empty);
-        return TaskPriorityMetadata.Replace(withoutPeople, string.Empty).TrimEnd();
+        var clean = TaskPeopleMetadata.Replace(text ?? string.Empty, string.Empty);
+        clean = TaskPriorityMetadata.Replace(clean, string.Empty);
+        clean = TaskIdMetadata.Replace(clean, string.Empty);
+        clean = TaskLinksMetadata.Replace(clean, string.Empty);
+        return clean.TrimEnd();
     }
 
     public static List<string> ReadTaskPeople(string? text)
     {
-        var match = TaskMetadata.Match(text ?? string.Empty);
+        var match = TaskPeopleMetadata.Match(text ?? string.Empty);
         return match.Success ? Parse(match.Groups["people"].Value) : [];
     }
 
@@ -97,18 +108,37 @@ public static class PersonTagService
             : null;
     }
 
+    public static string? ReadTaskId(string? text)
+    {
+        var match = TaskIdMetadata.Match(text ?? string.Empty);
+        return match.Success ? match.Groups["id"].Value : null;
+    }
+
+    public static List<ExternalLink> ReadTaskLinks(string? text)
+    {
+        var match = TaskLinksMetadata.Match(text ?? string.Empty);
+        return match.Success
+            ? ExternalLinkService.DecodeTaskMetadata(match.Groups["links"].Value)
+            : [];
+    }
+
     public static string AppendTaskMetadata(
         string? text,
         IEnumerable<string>? people,
-        int? priority = null)
+        int? priority = null,
+        string? taskId = null,
+        IEnumerable<ExternalLink>? externalLinks = null)
     {
         var clean = StripTaskMetadata(text);
         var normalized = Normalize(people);
+        var idMetadata = string.IsNullOrWhiteSpace(taskId) ? string.Empty : $" <!-- task-id: {taskId.Trim()} -->";
         var priorityMetadata = priority.HasValue ? $" <!-- priority: {priority.Value} -->" : string.Empty;
+        var links = ExternalLinkService.EncodeTaskMetadata(externalLinks);
+        var linksMetadata = links.Length == 0 ? string.Empty : $" <!-- links-b64: {links} -->";
         var peopleMetadata = normalized.Count == 0
             ? string.Empty
             : $" <!-- people: {string.Join(", ", normalized)} -->";
-        return clean + priorityMetadata + peopleMetadata;
+        return clean + idMetadata + priorityMetadata + linksMetadata + peopleMetadata;
     }
 
     public static bool Contains(IEnumerable<string>? people, string slug) =>

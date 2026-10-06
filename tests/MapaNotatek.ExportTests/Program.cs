@@ -17,6 +17,10 @@ try
         Tags = ["raport", "offline", "zespół-produktowy"],
         Body = BuildPdfFixtureBody()
     };
+    note.ExternalLinks = [ExternalLinkService.Create("Przestrzeń projektu", "https://docs.example.com/space")];
+    note.Checklist = FrontMatter.Parse(note.Body).Checklist;
+    note.Checklist.First(item => item.Text.Contains("Otwarte zadanie", StringComparison.Ordinal)).ExternalLinks =
+        [ExternalLinkService.Create("Zgłoszenie Jira", "https://jira.example.com/browse/MN-44")];
 
     CreateFixtureImage(root, note.Id);
     File.WriteAllText(note.FilePath, note.Body);
@@ -60,10 +64,13 @@ static void VerifyHtml(Note note)
     Require(html.Contains("&lt;offline&gt;", StringComparison.Ordinal), "Kod nie został zakodowany jako tekst.");
     Require(!html.Contains("<script>", StringComparison.OrdinalIgnoreCase), "Treść dokumentu wstrzyknęła skrypt.");
     Require(!html.Contains("src=\"https://", StringComparison.OrdinalIgnoreCase), "HTML odwołuje się do zdalnego obrazu.");
+    Require(html.Contains("https://docs.example.com/space", StringComparison.Ordinal), "HTML nie zawiera tekstowego linku notatki.");
+    Require(html.Contains("https://jira.example.com/browse/MN-44", StringComparison.Ordinal), "HTML nie zawiera tekstowego linku zadania.");
 
     var fragment = NoteExportService.BuildConfluenceClipboardHtml(note);
     Require(!fragment.Contains("<script>", StringComparison.OrdinalIgnoreCase), "Schowek rich text zawiera skrypt.");
     Require(!fragment.Contains("src=\"https://", StringComparison.OrdinalIgnoreCase), "Schowek rich text zawiera zdalny obraz.");
+    Require(fragment.Contains("https://jira.example.com/browse/MN-44", StringComparison.Ordinal), "Schowek nie zawiera tekstowego adresu zadania.");
 }
 
 static void VerifyDocx(Note note, string path)
@@ -91,6 +98,7 @@ static void VerifyDocx(Note note, string path)
     var documentXml = reader.ReadToEnd();
     Require(documentXml.Contains("Consolas", StringComparison.Ordinal), "Blok kodu nie ma stylu monospace w DOCX.");
     Require(!documentXml.Contains("```", StringComparison.Ordinal), "Znaczniki Markdown trafiły do DOCX.");
+    Require(documentXml.Contains("https://docs.example.com/space", StringComparison.Ordinal), "DOCX nie zawiera tekstowego adresu notatki.");
 }
 
 static void VerifyPdf(Note note, string path)

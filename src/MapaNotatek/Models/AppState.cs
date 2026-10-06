@@ -13,4 +13,5 @@ public sealed class AppState
     public string? BackupFolder { get; set; }
     public List<string> PinnedIds { get; set; } = [];
     public List<string> RecentIds { get; set; } = [];
+    public List<string> CollapsedGraphFolderIds { get; set; } = [];
 }

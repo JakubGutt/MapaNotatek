@@ -24,6 +24,8 @@ public partial class MainWindow : Window
     private int _panelIndex;
     private double _lastZoom = 1;
     private bool _zoomSaveReady;
+    private bool _rightAltHeld;
+    private readonly DispatcherTimer _zoomSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool _workspaceLoaded;
     private bool _graphWasPresented;
     private bool _editorPageActive;
@@ -41,7 +43,17 @@ public partial class MainWindow : Window
         InitializeComponent();
         Opened += (_, _) => LoadWorkspace();
         Closing += OnWindowClosing;
+        Deactivated += (_, _) => _rightAltHeld = false;
         AddHandler(KeyDownEvent, OnRootKeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(KeyUpEvent, OnRootKeyUp, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        _zoomSaveTimer.Tick += (_, _) =>
+        {
+            _zoomSaveTimer.Stop();
+            if (_zoomSaveReady && _vm is not null)
+            {
+                _vm.SaveZoom(_lastZoom);
+            }
+        };
     }
 
     private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
@@ -49,6 +61,12 @@ public partial class MainWindow : Window
         if (_allowClose || _vm is null)
         {
             return;
+        }
+
+        _zoomSaveTimer.Stop();
+        if (_zoomSaveReady)
+        {
+            _vm.SaveZoom(_lastZoom);
         }
 
         e.Cancel = true;
@@ -356,11 +374,9 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (Math.Abs(zoom - _lastZoom) > 0.02)
-                {
-                    _lastZoom = zoom;
-                    _vm.SaveZoom(zoom);
-                }
+                _lastZoom = zoom;
+                _zoomSaveTimer.Stop();
+                _zoomSaveTimer.Start();
             };
 
             _lastZoom = _vm.State.Zoom <= 0 ? 1 : _vm.State.Zoom;
@@ -1493,6 +1509,17 @@ public partial class MainWindow : Window
             note.Title = NoteTemplateCatalog.ResolveTitle(template, DateTimeOffset.Now);
             note.Body = template.Body.Trim();
             note.Checklist = FrontMatter.Parse(note.Body).Checklist;
+            _vm.NormalizeTaskItems(note.Checklist);
+            var templateBlocks = VisualDocumentService.Parse(note.Body);
+            var taskIndex = 0;
+            foreach (var block in templateBlocks.Where(block => block.Kind == DocumentBlockKind.Checklist))
+            {
+                var task = note.Checklist[taskIndex++];
+                block.TaskId = task.Id;
+                block.TaskPriority = task.Priority;
+            }
+            note.Body = VisualDocumentService.Serialize(templateBlocks);
+            note.Checklist = FrontMatter.Parse(note.Body).Checklist;
             _vm.ScheduleSaveNote(note);
             _vm.SaveNow();
             ShowEditorPage();
@@ -2153,6 +2180,11 @@ public partial class MainWindow : Window
 
     private bool TryRunGlobalCommand(KeyEventArgs e, bool textInput)
     {
+        if (textInput && PlatformKeys.IsTextComposition(e, _rightAltHeld))
+        {
+            return false;
+        }
+
         var command = BuildCommands().FirstOrDefault(candidate =>
             candidate.MatchesShortcut?.Invoke(e) == true && (candidate.AllowWhenTyping || !textInput));
         if (command is null)
@@ -2166,9 +2198,7 @@ public partial class MainWindow : Window
     }
 
     private static bool MatchesCommand(KeyEventArgs e, bool shift, params Key[] keys) =>
-        PlatformKeys.IsCommand(e.KeyModifiers) &&
-        !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
-        e.KeyModifiers.HasFlag(KeyModifiers.Shift) == shift &&
+        PlatformKeys.IsExactCommand(e.KeyModifiers, shift) &&
         keys.Contains(e.Key);
 
     private static bool MatchesRedo(KeyEventArgs e) =>
@@ -2177,15 +2207,17 @@ public partial class MainWindow : Window
             : MatchesCommand(e, shift: false, Key.Y);
 
     private static bool MatchesZoomIn(KeyEventArgs e) =>
-        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        (PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false) ||
+         PlatformKeys.IsExactCommand(e.KeyModifiers, shift: true)) &&
         e.Key is Key.OemPlus or Key.Add;
 
     private static bool MatchesSettings(KeyEventArgs e) =>
-        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false) &&
         e.Key == Key.OemComma;
 
     private static bool MatchesShortcutHelp(KeyEventArgs e) =>
-        PlatformKeys.IsCommand(e.KeyModifiers) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) &&
+        (PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false) ||
+         PlatformKeys.IsExactCommand(e.KeyModifiers, shift: true)) &&
         (e.Key is Key.OemQuestion or Key.Oem2 ||
          (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.D7));
 
@@ -2198,6 +2230,11 @@ public partial class MainWindow : Window
 
     private void OnRootKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.RightAlt || e.PhysicalKey == PhysicalKey.AltRight)
+        {
+            _rightAltHeld = true;
+        }
+
         if (_vm is null)
         {
             return;
@@ -2283,6 +2320,14 @@ public partial class MainWindow : Window
             EnsureGraphSelection();
             _vm.TrashSelectedNote();
             e.Handled = true;
+        }
+    }
+
+    private void OnRootKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.RightAlt || e.PhysicalKey == PhysicalKey.AltRight)
+        {
+            _rightAltHeld = false;
         }
     }
 

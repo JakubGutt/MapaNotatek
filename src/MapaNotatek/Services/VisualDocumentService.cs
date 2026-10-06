@@ -121,9 +121,11 @@ public static class VisualDocumentService
                 {
                     Kind = DocumentBlockKind.Checklist,
                     IsChecked = !string.Equals(checklist.Groups["state"].Value, " ", StringComparison.Ordinal),
+                    TaskId = PersonTagService.ReadTaskId(rawText) ?? Guid.NewGuid().ToString("N"),
                     Text = PersonTagService.StripTaskMetadata(rawText),
                     People = PersonTagService.ReadTaskPeople(rawText),
-                    TaskPriority = PersonTagService.ReadTaskPriority(rawText)
+                    TaskPriority = PersonTagService.ReadTaskPriority(rawText),
+                    ExternalLinks = PersonTagService.ReadTaskLinks(rawText)
                 });
                 index++;
                 continue;
@@ -294,7 +296,7 @@ public static class VisualDocumentService
         DocumentBlockKind.Bullet => "- " + block.Text.TrimEnd(),
         DocumentBlockKind.Numbered => "1. " + block.Text.TrimEnd(),
         DocumentBlockKind.Checklist =>
-            $"- [{(block.IsChecked ? "x" : " ")}] {PersonTagService.AppendTaskMetadata(block.Text.TrimEnd(), block.People, block.TaskPriority)}",
+            $"- [{(block.IsChecked ? "x" : " ")}] {PersonTagService.AppendTaskMetadata(block.Text.TrimEnd(), block.People, block.TaskPriority, EnsureTaskId(block), block.ExternalLinks)}",
         DocumentBlockKind.Quote => RenderPrefixedLines(block.Text, "> "),
         DocumentBlockKind.Code => $"```{block.Language.Trim()}\n{block.Text.TrimEnd()}\n```",
         DocumentBlockKind.Rule => "---",
@@ -302,6 +304,16 @@ public static class VisualDocumentService
         DocumentBlockKind.Table => RenderTable(block),
         _ => block.Text.TrimEnd()
     };
+
+    private static string EnsureTaskId(DocumentBlock block)
+    {
+        if (string.IsNullOrWhiteSpace(block.TaskId))
+        {
+            block.TaskId = Guid.NewGuid().ToString("N");
+        }
+
+        return block.TaskId;
+    }
 
     private static string RenderTable(DocumentBlock block)
     {

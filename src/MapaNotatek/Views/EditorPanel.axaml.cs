@@ -86,6 +86,11 @@ public partial class EditorPanel : UserControl
             ProjectNameBox.Text = project.Name;
             ProjectDescriptionBox.Text = project.Description;
             PersonPickerMenu.UpdateButton(ProjectPeopleButton, ViewModel.People, project.People);
+            ExternalLinksEditor.Bind(
+                ProjectLinksHost,
+                project.ExternalLinks,
+                () => ViewModel.ScheduleSaveProject(project),
+                status => ViewModel.StatusText = status);
             ProjectSystemsPanel.IsVisible = MainViewModel.SupportsSystemMembership(project);
             if (ProjectSystemsPanel.IsVisible)
             {
@@ -143,6 +148,11 @@ public partial class EditorPanel : UserControl
             LoadVisualDocument(note, force: !string.Equals(_visualNoteId, note.Id, StringComparison.Ordinal));
             NoteTagsBox.Text = string.Join(", ", note.Tags);
             PersonPickerMenu.UpdateButton(NotePeopleButton, ViewModel.People, note.People);
+            ExternalLinksEditor.Bind(
+                NoteLinksHost,
+                note.ExternalLinks,
+                () => ViewModel.ScheduleSaveNote(note),
+                status => ViewModel.StatusText = status);
             ExplicitRelationsList.ItemsSource = ViewModel.Notes
                 .Where(candidate =>
                     note.RelatedNoteIds.Contains(candidate.Id, StringComparer.OrdinalIgnoreCase) ||
@@ -721,6 +731,26 @@ public partial class EditorPanel : UserControl
                 fontSize: 11);
             peopleButton.Margin = new Thickness(3, 3, 0, 0);
             editorWithOutput.Children.Add(peopleButton);
+            var linksButton = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(3, 1, 0, 0),
+                Padding = new Thickness(8, 4),
+                FontSize = 11
+            };
+            ExternalLinksEditor.UpdateCompactButton(linksButton, block.ExternalLinks);
+            linksButton.Click += (_, _) => ExternalLinksEditor.ShowCompactMenu(
+                linksButton,
+                block.ExternalLinks,
+                () => SyncVisualToNote(updateOutline: false),
+                status =>
+                {
+                    if (ViewModel is not null)
+                    {
+                        ViewModel.StatusText = status;
+                    }
+                });
+            editorWithOutput.Children.Add(linksButton);
         }
         Control body = editorWithOutput;
         if (block.Kind is DocumentBlockKind.Bullet or DocumentBlockKind.Numbered or DocumentBlockKind.Checklist)
@@ -1146,6 +1176,13 @@ public partial class EditorPanel : UserControl
         {
             RenderAndSyncVisualDocument(block.RuntimeId, 0);
             return;
+        }
+
+        if (edit.FollowingBlock.Kind == DocumentBlockKind.Checklist && ViewModel is not null)
+        {
+            var metadata = ViewModel.CreateChecklistBlock();
+            edit.FollowingBlock.TaskId = metadata.TaskId;
+            edit.FollowingBlock.TaskPriority = metadata.TaskPriority;
         }
 
         var index = _visualBlocks.IndexOf(block);
@@ -1755,7 +1792,11 @@ public partial class EditorPanel : UserControl
         InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Bullet });
 
     private void OnAddChecklistBlock(object? sender, RoutedEventArgs e) =>
-        InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Checklist });
+        InsertVisualNearActive(ViewModel?.CreateChecklistBlock() ?? new DocumentBlock
+        {
+            Kind = DocumentBlockKind.Checklist,
+            TaskId = Guid.NewGuid().ToString("N")
+        });
 
     private void OnAddCodeBlock(object? sender, RoutedEventArgs e) =>
         InsertVisualNearActive(new DocumentBlock { Kind = DocumentBlockKind.Code, Language = "text" });
@@ -2423,7 +2464,7 @@ public partial class EditorPanel : UserControl
 
     private void AddChecklistItem(List<ChecklistItem> items, Action changed, StackPanel host)
     {
-        items.Add(new ChecklistItem { Text = string.Empty });
+        items.Add(ViewModel?.CreateChecklistItem() ?? new ChecklistItem { Text = string.Empty });
         changed();
         FillChecklist(host, items, changed, () => AddChecklistItem(items, changed, host));
         Dispatcher.UIThread.Post(() =>
@@ -2505,10 +2546,29 @@ public partial class EditorPanel : UserControl
                 },
                 fontSize: 11);
 
+            var links = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(8, 4),
+                FontSize = 11
+            };
+            ExternalLinksEditor.UpdateCompactButton(links, item.ExternalLinks);
+            links.Click += (_, _) => ExternalLinksEditor.ShowCompactMenu(
+                links,
+                item.ExternalLinks,
+                changed,
+                status =>
+                {
+                    if (ViewModel is not null)
+                    {
+                        ViewModel.StatusText = status;
+                    }
+                });
+
             var row = new Grid
             {
                 ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
-                RowDefinitions = new RowDefinitions("Auto,Auto"),
+                RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
                 ColumnSpacing = 6,
                 RowSpacing = 4
             };
@@ -2517,10 +2577,14 @@ public partial class EditorPanel : UserControl
             Grid.SetRow(people, 1);
             Grid.SetColumn(people, 1);
             Grid.SetColumnSpan(people, 2);
+            Grid.SetRow(links, 2);
+            Grid.SetColumn(links, 1);
+            Grid.SetColumnSpan(links, 2);
             row.Children.Add(check);
             row.Children.Add(text);
             row.Children.Add(delete);
             row.Children.Add(people);
+            row.Children.Add(links);
             host.Children.Add(row);
         }
     }

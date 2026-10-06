@@ -15,6 +15,9 @@ public partial class TaskListView : UserControl
     private OpenTask? _dropTarget;
     private bool _dropAfter;
     private bool _isReordering;
+    private bool _bindingFilter;
+    private string? _selectedSourceId;
+    private List<OpenTask> _displayedTasks = [];
 
     public TaskListView()
     {
@@ -56,14 +59,61 @@ public partial class TaskListView : UserControl
             return;
         }
 
-        TasksList.ItemsSource = ViewModel.VisibleTasks;
-        var openCount = ViewModel.VisibleTasks.Count;
-        var totalCount = ViewModel.VisibleProjects.Sum(project => project.Checklist.Count) +
-                         ViewModel.VisibleNotes.Sum(note => note.Checklist.Count);
+        var sources = BuildSourceOptions();
+        _bindingFilter = true;
+        SourceFilter.ItemsSource = sources;
+        SourceFilter.SelectedItem = sources.FirstOrDefault(option =>
+            string.Equals(option.SourceId, _selectedSourceId, StringComparison.OrdinalIgnoreCase)) ?? sources[0];
+        _selectedSourceId = (SourceFilter.SelectedItem as TaskSourceOption)?.SourceId;
+        _bindingFilter = false;
+
+        _displayedTasks = ViewModel.VisibleTasks
+            .Where(task => _selectedSourceId is null ||
+                           string.Equals(task.SourceId, _selectedSourceId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        TasksList.ItemsSource = _displayedTasks;
+        var openCount = _displayedTasks.Count;
+        var totalCount = _selectedSourceId is null
+            ? ViewModel.VisibleProjects.Sum(project => project.Checklist.Count) +
+              ViewModel.VisibleNotes.Sum(note => note.Checklist.Count)
+            : ViewModel.VisibleProjects.FirstOrDefault(project =>
+                  string.Equals(project.Id, _selectedSourceId, StringComparison.OrdinalIgnoreCase))?.Checklist.Count ??
+              ViewModel.VisibleNotes.FirstOrDefault(note =>
+                  string.Equals(note.Id, _selectedSourceId, StringComparison.OrdinalIgnoreCase))?.Checklist.Count ?? 0;
         TasksCountText.Text = $"Otwarte: {openCount} · Wszystkie: {totalCount}";
         EmptyState.IsVisible = openCount == 0;
         TasksList.IsVisible = openCount > 0;
         TaskCountsChanged?.Invoke(openCount, totalCount);
+    }
+
+    private List<TaskSourceOption> BuildSourceOptions()
+    {
+        var options = new List<TaskSourceOption>
+        {
+            new(null, $"Wszystkie źródła ({ViewModel!.VisibleTasks.Count})")
+        };
+        options.AddRange(ViewModel.VisibleProjects
+            .Where(project => project.Checklist.Count > 0)
+            .Select(project => new TaskSourceOption(
+                project.Id,
+                $"{project.ItemType.Label()} · {project.Name} ({project.Checklist.Count(item => !item.IsDone)})")));
+        options.AddRange(ViewModel.VisibleNotes
+            .Where(note => note.Checklist.Count > 0)
+            .Select(note => new TaskSourceOption(
+                note.Id,
+                $"Notatka · {note.Title} ({note.Checklist.Count(item => !item.IsDone)})")));
+        return [options[0], .. options.Skip(1).OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    private void OnSourceFilterChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_bindingFilter || SourceFilter.SelectedItem is not TaskSourceOption option)
+        {
+            return;
+        }
+
+        _selectedSourceId = option.SourceId;
+        Bind();
     }
 
     private void OnTaskCardPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -155,7 +205,7 @@ public partial class TaskListView : UserControl
         if (ViewModel.MoveTask(movedTask, targetTask, placeAfter))
         {
             Bind();
-            var moved = ViewModel.VisibleTasks.FirstOrDefault(task => ReferenceEquals(task.Item, movedTask.Item));
+            var moved = _displayedTasks.FirstOrDefault(task => ReferenceEquals(task.Item, movedTask.Item));
             if (moved is not null)
             {
                 TasksList.SelectedItem = moved;
@@ -178,8 +228,8 @@ public partial class TaskListView : UserControl
         }
 
         _dropTarget = target;
-        var movedIndex = ViewModel?.VisibleTasks.IndexOf(_dragCandidate) ?? -1;
-        var targetIndex = ViewModel?.VisibleTasks.IndexOf(target) ?? -1;
+        var movedIndex = _displayedTasks.IndexOf(_dragCandidate);
+        var targetIndex = _displayedTasks.IndexOf(target);
         _dropAfter = movedIndex >= 0 && targetIndex >= 0
             ? targetIndex > movedIndex
             : position.Y > targetContainer.Bounds.Center.Y;
@@ -209,6 +259,11 @@ public partial class TaskListView : UserControl
                 position.Y - (candidate.TopLeft!.Value.Y + candidate.Item.Bounds.Height / 2)))
             .Select(candidate => candidate.Item)
             .FirstOrDefault();
+    }
+
+    private sealed record TaskSourceOption(string? SourceId, string Label)
+    {
+        public override string ToString() => Label;
     }
 
     private void OnTaskChecked(object? sender, RoutedEventArgs e)
@@ -241,6 +296,26 @@ public partial class TaskListView : UserControl
                 ViewModel.People,
                 task.Item.People,
                 selected => ViewModel.UpdateTaskPeople(task, string.Join(",", selected)));
+        }
+    }
+
+    private void OnTaskLinksButtonLoaded(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: OpenTask task } button)
+        {
+            ExternalLinksEditor.UpdateCompactButton(button, task.Item.ExternalLinks);
+        }
+    }
+
+    private void OnTaskLinksClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: OpenTask task } button && ViewModel is not null)
+        {
+            ExternalLinksEditor.ShowCompactMenu(
+                button,
+                task.Item.ExternalLinks,
+                () => ViewModel.NotifyTaskLinksChanged(task),
+                status => ViewModel.StatusText = status);
         }
     }
 

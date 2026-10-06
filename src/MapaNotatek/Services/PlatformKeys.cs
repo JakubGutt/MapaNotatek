@@ -24,4 +24,33 @@ public static class PlatformKeys
         IsMac
             ? modifiers.HasFlag(KeyModifiers.Meta)
             : modifiers.HasFlag(KeyModifiers.Control);
+
+    /// <summary>True only for the platform command modifier, optionally with Shift.</summary>
+    public static bool IsExactCommand(KeyModifiers modifiers, bool shift)
+    {
+        var allowed = (IsMac ? KeyModifiers.Meta : KeyModifiers.Control) |
+                      (shift ? KeyModifiers.Shift : KeyModifiers.None);
+        return modifiers == allowed;
+    }
+
+    /// <summary>
+    /// AltGr is represented as Ctrl+Alt on Windows. Some input paths briefly report
+    /// only Ctrl, so a non-ASCII printable key symbol is also treated as composed text.
+    /// </summary>
+    public static bool IsTextComposition(KeyEventArgs e, bool rightAltHeld)
+    {
+        if (!IsWindows)
+        {
+            return false;
+        }
+
+        if (rightAltHeld ||
+            (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Alt)))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrEmpty(e.KeySymbol) &&
+               e.KeySymbol.Any(character => !char.IsControl(character) && character > 127);
+    }
 }

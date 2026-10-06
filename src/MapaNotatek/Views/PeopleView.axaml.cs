@@ -355,6 +355,11 @@ public partial class PeopleView : UserControl
         PersonDescriptionBox.Text = person.Description;
         PersonSlugText.Text = $"Identyfikator przypisań: {person.Slug}";
         RemoveAvatarButton.IsVisible = !string.IsNullOrWhiteSpace(person.AvatarPath);
+        ExternalLinksEditor.Bind(
+            PersonLinksHost,
+            person.ExternalLinks,
+            () => ViewModel.ScheduleSavePerson(person),
+            status => ViewModel.StatusText = status);
 
         var projects = ViewModel.Projects
             .Where(project => PersonTagService.Contains(project.People, person.Slug))

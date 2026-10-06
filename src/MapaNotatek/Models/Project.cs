@@ -9,6 +9,7 @@ public sealed class Project
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<string> People { get; set; } = [];
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
     /// <summary>Explicit system memberships. They are never inherited from the parent.</summary>
     public List<string> SystemIds { get; set; } = [];
     public List<ChecklistItem> Checklist { get; set; } = [];

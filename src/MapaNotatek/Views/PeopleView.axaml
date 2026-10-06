@@ -129,6 +129,8 @@
                                      MinHeight="110"
                                      VerticalContentAlignment="Top"
                                      TextChanged="OnPersonChanged" />
+                            <TextBlock Classes="eyebrow" Text="LINKI ZEWNĘTRZNE" Margin="0,5,0,0" />
+                            <StackPanel x:Name="PersonLinksHost" Spacing="5" />
 
                             <Border Classes="person-card" Padding="12" Margin="0,6,0,2">
                                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">

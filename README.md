@@ -28,9 +28,13 @@ Aplikacja działa bez konta, serwera i subskrypcji. Gotowy program nie potrzebuj
 - panel osób z awatarami, rolą i opisem, pokazujący przypisane projekty, foldery, notatki oraz zadania; przypisania wybiera się z rejestru osób, bez możliwości zapisania błędnego tagu;
 - usuwanie profili osób do kosza wraz z wyczyszczeniem ich przypisań z projektów, notatek i zadań;
 - ręczne ustawianie priorytetu zadań przez przeciąganie kafelków; kolejność jest zapisywana w Markdown i zachowywana po ponownym uruchomieniu;
+- nowe zadania trafiają na dół wspólnej listy, którą można filtrować po dokładnym źródle;
+- nazwane adresy HTTP/HTTPS przy projektach, folderach, elementach architektury, notatkach, osobach i zadaniach są danymi lokalnymi — można je edytować i kopiować, ale aplikacja ich nie otwiera;
 - tworzenie typowanych połączeń bezpośrednio na grafie oraz jawne przypisywanie produktu, podsystemu lub komponentu do wielu systemów;
 - sesyjna historia Wstecz/Dalej przywracająca także zakres, zaznaczenie i pozycję grafu;
 - interaktywny graf architektury, projektów, folderów, notatek i wikilinków z czytelnymi kartami, typami relacji, trybem badania sąsiedztwa oraz automatycznym dopasowaniem widoku;
+- wielozaznaczenie kliknięciami i ramką, grupowe przesuwanie, zwijanie folderów oraz deterministyczne porządkowanie grafu w gwiazdy produktów;
+- płynny zoom grafu pod kursorem przez `Ctrl/⌘ + kółko`; zwykłe kółko przewija, a gest pinch używa tego samego mechanizmu;
 - systemy, produkty, podsystemy i komponenty mają stałe, odrębne kolory na grafie i w drzewie; zakres można ograniczyć do jednego poddrzewa;
 - Enter automatycznie tworzy kolejny punkt listy, numeracji lub checklisty, a Enter na pustym punkcie kończy listę;
 - kosz dla notatek, projektów i osób z możliwością przywrócenia;

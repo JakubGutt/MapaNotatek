@@ -152,6 +152,7 @@ public sealed class AppStateStore
             StringComparer.OrdinalIgnoreCase);
         state.PinnedIds ??= [];
         state.RecentIds ??= [];
+        state.CollapsedGraphFolderIds ??= [];
         if (state.Zoom <= 0 || double.IsNaN(state.Zoom) || double.IsInfinity(state.Zoom))
         {
             state.Zoom = 1;

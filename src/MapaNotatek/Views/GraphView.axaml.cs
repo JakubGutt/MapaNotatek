@@ -27,7 +27,9 @@ public partial class GraphView : UserControl
     private string? _dragId;
     private Point _dragOffset;
     private Point _pressPoint;
+    private readonly Dictionary<string, Point> _dragOrigins = new(StringComparer.OrdinalIgnoreCase);
     private bool _dragging;
+    private bool _replaceGroupOnClick;
     private double _zoom = 1;
     private Point? _lastContextCanvasPoint;
     private bool _panning;
@@ -36,12 +38,17 @@ public partial class GraphView : UserControl
     private bool _updatingProjectFilter;
     private Point _panPointerStart;
     private Vector _panScrollStart;
+    private bool _marqueeSelecting;
+    private bool _marqueeAdd;
+    private Point _marqueeStart;
+    private Rectangle? _marquee;
 
     public GraphView()
     {
         InitializeComponent();
         ZoomHost.LayoutTransform = _zoomTransform;
         GraphCanvas.ContextRequested += OnCanvasContextRequested;
+        GraphScroll.PointerTouchPadGestureMagnify += OnTouchPadMagnify;
     }
 
     public MainViewModel? ViewModel { get; set; }
@@ -251,7 +258,9 @@ public partial class GraphView : UserControl
             var childCount = projects.Count(child => string.Equals(child.ParentId, project.Id, StringComparison.OrdinalIgnoreCase));
             var openTasks = project.Checklist.Count(item => !item.IsDone);
             var meta = project.IsFolder
-                ? $"{project.ItemType.Label()} · {childCount} elementów"
+                ? ViewModel.IsGraphFolderCollapsed(project.Id)
+                    ? $"{project.ItemType.Label()} · ukryto {ViewModel.CountHiddenUnderFolder(project)}"
+                    : $"{project.ItemType.Label()} · {childCount} elementów"
                 : $"{project.ItemType.Label()} · {childCount} dzieci · {noteCount} notatek · {openTasks} zadań";
             AddNode(project.Id, project.Name, meta, project.ItemType);
         }
@@ -500,7 +509,7 @@ public partial class GraphView : UserControl
             }
         };
 
-        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("32,10,*,18") };
+        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("32,10,*,Auto,18") };
         content.Children.Add(iconBorder);
         Grid.SetColumn(textStack, 2);
         content.Children.Add(textStack);
@@ -520,8 +529,37 @@ public partial class GraphView : UserControl
         connector.PointerMoved += OnConnectorMoved;
         connector.PointerReleased += OnConnectorReleased;
         connector.PointerCaptureLost += OnConnectorCaptureLost;
-        Grid.SetColumn(connector, 3);
+        Grid.SetColumn(connector, 4);
         content.Children.Add(connector);
+
+        if (itemType == ProjectItemType.Folder)
+        {
+            var folder = ViewModel.Projects.FirstOrDefault(project =>
+                string.Equals(project.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (folder is not null)
+            {
+                var collapse = new Button
+                {
+                    Content = ViewModel.IsGraphFolderCollapsed(id) ? "▸" : "▾",
+                    Width = 26,
+                    Height = 28,
+                    Padding = new Thickness(0),
+                    Margin = new Thickness(2, 0, 4, 0),
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                };
+                ToolTip.SetTip(collapse, ViewModel.IsGraphFolderCollapsed(id)
+                    ? "Rozwiń folder"
+                    : "Zwiń folder");
+                collapse.PointerPressed += (_, args) => args.Handled = true;
+                collapse.Click += (_, args) =>
+                {
+                    args.Handled = true;
+                    ViewModel.ToggleGraphFolderCollapsed(folder);
+                };
+                Grid.SetColumn(collapse, 3);
+                content.Children.Add(collapse);
+            }
+        }
 
         var host = new Border
         {
@@ -553,11 +591,12 @@ public partial class GraphView : UserControl
         }
 
         var selectedId = ViewModel.SelectedGraphId;
+        var selectedIds = ViewModel.SelectedGraphIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var relatedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (selectedId is not null)
+        foreach (var currentId in selectedIds)
         {
-            relatedIds.Add(selectedId);
-            foreach (var edge in _edges.Where(edge => edge.Connects(selectedId)))
+            relatedIds.Add(currentId);
+            foreach (var edge in _edges.Where(edge => edge.Connects(currentId)))
             {
                 relatedIds.Add(edge.FromId);
                 relatedIds.Add(edge.ToId);
@@ -571,7 +610,7 @@ public partial class GraphView : UserControl
                 continue;
             }
 
-            var selected = string.Equals(pair.Key, selectedId, StringComparison.OrdinalIgnoreCase);
+            var selected = selectedIds.Contains(pair.Key);
             if (selected && !tag.Card.Classes.Contains("selected"))
             {
                 tag.Card.Classes.Add("selected");
@@ -586,14 +625,21 @@ public partial class GraphView : UserControl
 
         foreach (var edge in _edges)
         {
-            var connected = selectedId is null || edge.Connects(selectedId);
+            var connected = selectedIds.Count == 0 || selectedIds.Any(edge.Connects);
             edge.Path.Opacity = connected ? 0.9 : 0.1;
             edge.Path.StrokeThickness = connected && selectedId is not null
                 ? edge.BaseThickness + 1.2
                 : edge.BaseThickness;
         }
 
-        if (selectedId is not null && _nodes.TryGetValue(selectedId, out var selectedHost) && selectedHost.Tag is NodeTag selectedTag)
+        if (selectedIds.Count > 1)
+        {
+            GraphSelectionKind.Text = "WIELOZAZNACZENIE";
+            GraphSelectionTitle.Text = $"{selectedIds.Count} elementów";
+            GraphSelectionMeta.Text = "Przeciągnięcie dowolnego zaznaczonego kafelka przesuwa całą grupę.";
+            GraphSelectionCard.IsVisible = true;
+        }
+        else if (selectedId is not null && _nodes.TryGetValue(selectedId, out var selectedHost) && selectedHost.Tag is NodeTag selectedTag)
         {
             GraphSelectionKind.Text = selectedTag.ItemType?.Label().ToUpperInvariant() ?? "NOTATKA";
             GraphSelectionTitle.Text = selectedTag.Title;
@@ -619,8 +665,28 @@ public partial class GraphView : UserControl
             return;
         }
 
+        if (_spaceHeld)
+        {
+            return;
+        }
+
         Focus();
-        ViewModel.SelectGraphNode(tag.Id, tag.IsProject);
+        var add = PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false);
+        if (add)
+        {
+            ViewModel.ToggleGraphNodeSelection(tag.Id, tag.IsProject);
+            if (!ViewModel.IsGraphNodeSelected(tag.Id))
+            {
+                HighlightSelection();
+                e.Handled = true;
+                return;
+            }
+        }
+        else if (!ViewModel.IsGraphNodeSelected(tag.Id))
+        {
+            ViewModel.SelectGraphNode(tag.Id, tag.IsProject);
+        }
+        _replaceGroupOnClick = !add && ViewModel.SelectedGraphIds.Count > 1;
         HighlightSelection();
         var point = e.GetPosition(GraphCanvas);
         var left = Canvas.GetLeft(host);
@@ -628,6 +694,14 @@ public partial class GraphView : UserControl
         _dragId = tag.Id;
         _dragOffset = new Point(point.X - left, point.Y - top);
         _pressPoint = point;
+        _dragOrigins.Clear();
+        foreach (var selected in ViewModel.SelectedGraphIds)
+        {
+            if (_nodes.TryGetValue(selected, out var selectedHost))
+            {
+                _dragOrigins[selected] = new Point(Canvas.GetLeft(selectedHost), Canvas.GetTop(selectedHost));
+            }
+        }
         _dragging = false;
         _panning = false;
         e.Pointer.Capture(host);
@@ -807,10 +881,6 @@ public partial class GraphView : UserControl
         }
 
         var point = e.GetPosition(GraphCanvas);
-        var left = point.X - _dragOffset.X;
-        var top = point.Y - _dragOffset.Y;
-        Canvas.SetLeft(host, left);
-        Canvas.SetTop(host, top);
         var dx = point.X - _pressPoint.X;
         var dy = point.Y - _pressPoint.Y;
         if ((dx * dx) + (dy * dy) > 16)
@@ -818,9 +888,18 @@ public partial class GraphView : UserControl
             _dragging = true;
         }
 
-        if (host.Tag is NodeTag tag)
+        foreach (var origin in _dragOrigins)
         {
-            UpdateEdges(tag.Id, left + (tag.Width / 2), top + (tag.Height / 2));
+            if (!_nodes.TryGetValue(origin.Key, out var movingHost) || movingHost.Tag is not NodeTag movingTag)
+            {
+                continue;
+            }
+
+            var left = Math.Clamp(origin.Value.X + dx, 0, LayoutService.CanvasWidth - movingTag.Width);
+            var top = Math.Clamp(origin.Value.Y + dy, 0, LayoutService.CanvasHeight - movingTag.Height);
+            Canvas.SetLeft(movingHost, left);
+            Canvas.SetTop(movingHost, top);
+            UpdateEdges(movingTag.Id, left + (movingTag.Width / 2), top + (movingTag.Height / 2));
         }
 
         e.Handled = true;
@@ -847,9 +926,21 @@ public partial class GraphView : UserControl
 
         if (_dragging)
         {
-            var x = Canvas.GetLeft(host) + (tag.Width / 2);
-            var y = Canvas.GetTop(host) + (tag.Height / 2);
-            ViewModel.MoveNode(tag.Id, x, y, recordUndo: true);
+            var targets = new Dictionary<string, GraphPosition>(StringComparer.OrdinalIgnoreCase);
+            foreach (var id in _dragOrigins.Keys)
+            {
+                if (_nodes.TryGetValue(id, out var movedHost) && movedHost.Tag is NodeTag movedTag)
+                {
+                    targets[id] = new GraphPosition
+                    {
+                        Id = id,
+                        X = Canvas.GetLeft(movedHost) + (movedTag.Width / 2),
+                        Y = Canvas.GetTop(movedHost) + (movedTag.Height / 2)
+                    };
+                }
+            }
+
+            ViewModel.MoveNodes(targets, recordUndo: true);
         }
         else if (openOnClick)
         {
@@ -870,9 +961,16 @@ public partial class GraphView : UserControl
                 }
             }
         }
+        else if (_replaceGroupOnClick)
+        {
+            ViewModel.SelectGraphNode(tag.Id, tag.IsProject);
+            HighlightSelection();
+        }
 
         _dragId = null;
+        _dragOrigins.Clear();
         _dragging = false;
+        _replaceGroupOnClick = false;
     }
 
     private void OnNodeDoubleTapped(object? sender, TappedEventArgs e)
@@ -889,16 +987,10 @@ public partial class GraphView : UserControl
         Focus();
         _lastContextCanvasPoint = e.GetPosition(GraphCanvas);
 
-        // Only pan when the empty canvas is hit — never steal node drags.
-        if (!ReferenceEquals(e.Source, GraphCanvas))
-        {
-            return;
-        }
-
         var point = e.GetCurrentPoint(GraphScroll);
         var isMiddle = point.Properties.IsMiddleButtonPressed;
         var isLeft = point.Properties.IsLeftButtonPressed;
-        if (isMiddle || (isLeft && (_spaceHeld || e.KeyModifiers.HasFlag(KeyModifiers.Control))))
+        if (isMiddle || (isLeft && _spaceHeld))
         {
             BeginPan(e.GetPosition(GraphScroll));
             e.Pointer.Capture(GraphCanvas);
@@ -906,9 +998,16 @@ public partial class GraphView : UserControl
             return;
         }
 
+
+        // A regular left drag starts selection only on the empty canvas.
+        if (!ReferenceEquals(e.Source, GraphCanvas))
+        {
+            return;
+        }
+
         if (isLeft)
         {
-            BeginPan(e.GetPosition(GraphScroll));
+            BeginMarquee(e.GetPosition(GraphCanvas), PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false));
             e.Pointer.Capture(GraphCanvas);
             e.Handled = true;
         }
@@ -916,6 +1015,13 @@ public partial class GraphView : UserControl
 
     private void OnCanvasMoved(object? sender, PointerEventArgs e)
     {
+        if (_marqueeSelecting)
+        {
+            UpdateMarquee(e.GetPosition(GraphCanvas));
+            e.Handled = true;
+            return;
+        }
+
         if (!_panning)
         {
             return;
@@ -937,13 +1043,95 @@ public partial class GraphView : UserControl
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (_marqueeSelecting)
+        {
+            EndMarquee(apply: true);
+            e.Pointer.Capture(null);
+            e.Handled = true;
+            return;
+        }
+
         EndPan(clearSelectionOnClick: true);
         e.Pointer.Capture(null);
         e.Handled = true;
     }
 
-    private void OnCanvasCaptureLost(object? sender, PointerCaptureLostEventArgs e) =>
+    private void OnCanvasCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        EndMarquee(apply: false);
         EndPan(clearSelectionOnClick: false);
+    }
+
+    private void BeginMarquee(Point point, bool add)
+    {
+        _marqueeSelecting = true;
+        _marqueeAdd = add;
+        _marqueeStart = point;
+        _marquee = new Rectangle
+        {
+            Stroke = new SolidColorBrush(Color.FromRgb(40, 103, 214)),
+            Fill = new SolidColorBrush(Color.FromArgb(30, 40, 103, 214)),
+            StrokeThickness = 1.5,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 4, 3 },
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(_marquee, point.X);
+        Canvas.SetTop(_marquee, point.Y);
+        GraphCanvas.Children.Add(_marquee);
+    }
+
+    private void UpdateMarquee(Point point)
+    {
+        if (_marquee is null)
+        {
+            return;
+        }
+
+        var left = Math.Min(_marqueeStart.X, point.X);
+        var top = Math.Min(_marqueeStart.Y, point.Y);
+        _marquee.Width = Math.Abs(point.X - _marqueeStart.X);
+        _marquee.Height = Math.Abs(point.Y - _marqueeStart.Y);
+        Canvas.SetLeft(_marquee, left);
+        Canvas.SetTop(_marquee, top);
+    }
+
+    private void EndMarquee(bool apply)
+    {
+        if (!_marqueeSelecting)
+        {
+            return;
+        }
+
+        if (apply && ViewModel is not null && _marquee is not null)
+        {
+            var bounds = new Rect(
+                Canvas.GetLeft(_marquee),
+                Canvas.GetTop(_marquee),
+                _marquee.Width,
+                _marquee.Height);
+            var ids = bounds.Width < 3 && bounds.Height < 3
+                ? []
+                : _nodes.Where(pair => pair.Value.Tag is NodeTag tag &&
+                                       bounds.Intersects(new Rect(
+                                           Canvas.GetLeft(pair.Value),
+                                           Canvas.GetTop(pair.Value),
+                                           tag.Width,
+                                           tag.Height)))
+                    .Select(pair => pair.Key)
+                    .ToList();
+            ViewModel.SetGraphSelection(ids, _marqueeAdd);
+            HighlightSelection();
+        }
+
+        if (_marquee is not null)
+        {
+            GraphCanvas.Children.Remove(_marquee);
+        }
+
+        _marquee = null;
+        _marqueeSelecting = false;
+        _marqueeAdd = false;
+    }
 
     private void BeginPan(Point pointerInScroll)
     {
@@ -1059,6 +1247,12 @@ public partial class GraphView : UserControl
                 ViewModel.SetProjectParent(project, null);
             }
         }));
+        if (project?.IsFolder == true)
+        {
+            menu.Items.Add(Item(
+                ViewModel.IsGraphFolderCollapsed(project.Id) ? "Rozwiń folder" : "Zwiń folder",
+                () => ViewModel.ToggleGraphFolderCollapsed(project)));
+        }
         if (project?.ItemType == ProjectItemType.System)
         {
             menu.Items.Add(new Separator());
@@ -1127,6 +1321,7 @@ public partial class GraphView : UserControl
         menu.Items.Add(addItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Pokaż całą strukturę", () => ViewModel!.ShowAllProjects()));
+        menu.Items.Add(Item("Uporządkuj graf", () => ViewModel!.AutoArrangeGraph()));
         menu.Items.Add(Item("Domyślne powiększenie", () =>
         {
             SetZoom(1);
@@ -1194,28 +1389,60 @@ public partial class GraphView : UserControl
 
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
+        if (!PlatformKeys.IsExactCommand(e.KeyModifiers, shift: false))
+        {
+            if (e.KeyModifiers == KeyModifiers.Shift)
+            {
+                var horizontalStep = e.Delta.Y != 0 ? e.Delta.Y : e.Delta.X;
+                GraphScroll.Offset = new Vector(
+                    Math.Max(0, GraphScroll.Offset.X - (horizontalStep * 48)),
+                    GraphScroll.Offset.Y);
+                e.Handled = true;
+            }
+
+            return;
+        }
+
         var step = e.Delta.Y != 0 ? e.Delta.Y : e.Delta.X;
         if (Math.Abs(step) < 0.01)
         {
             return;
         }
 
-        var delta = Math.Abs(step) >= 1
-            ? (step > 0 ? 0.12 : -0.12)
-            : (step > 0 ? 0.08 : -0.08);
-
         var pointerInScroll = e.GetPosition(GraphScroll);
+        SetZoomAt(_zoom * Math.Pow(1.12, step), pointerInScroll);
+        e.Handled = true;
+    }
+
+    private void OnPinch(object? sender, PinchEventArgs e)
+    {
+        var viewportOrigin = GraphCanvas.TranslatePoint(e.ScaleOrigin, GraphScroll) ?? e.ScaleOrigin;
+        SetZoomAt(_zoom * e.Scale, viewportOrigin);
+        e.Handled = true;
+    }
+
+    private void OnTouchPadMagnify(object? sender, PointerDeltaEventArgs e)
+    {
+        var delta = Math.Abs(e.Delta.Y) >= Math.Abs(e.Delta.X) ? e.Delta.Y : e.Delta.X;
+        if (Math.Abs(delta) < 0.0001)
+        {
+            return;
+        }
+
+        SetZoomAt(_zoom * Math.Exp(delta), e.GetPosition(GraphScroll));
+        e.Handled = true;
+    }
+
+    private void SetZoomAt(double factor, Point viewportPoint)
+    {
         var oldZoom = _zoom;
         var offset = GraphScroll.Offset;
-        var canvasX = (offset.X + pointerInScroll.X) / Math.Max(oldZoom, 0.01);
-        var canvasY = (offset.Y + pointerInScroll.Y) / Math.Max(oldZoom, 0.01);
-
-        ChangeZoom(delta);
-
-        var newOx = (canvasX * _zoom) - pointerInScroll.X;
-        var newOy = (canvasY * _zoom) - pointerInScroll.Y;
-        GraphScroll.Offset = new Vector(Math.Max(0, newOx), Math.Max(0, newOy));
-        e.Handled = true;
+        var canvasX = (offset.X + viewportPoint.X) / Math.Max(oldZoom, 0.01);
+        var canvasY = (offset.Y + viewportPoint.Y) / Math.Max(oldZoom, 0.01);
+        SetZoom(factor);
+        GraphScroll.Offset = new Vector(
+            Math.Max(0, (canvasX * _zoom) - viewportPoint.X),
+            Math.Max(0, (canvasY * _zoom) - viewportPoint.Y));
     }
 
     private void ChangeZoom(double delta) => SetZoom(_zoom + delta);
@@ -1227,6 +1454,8 @@ public partial class GraphView : UserControl
     private void OnZoomResetClick(object? sender, RoutedEventArgs e) => SetZoom(1);
 
     private void OnFitGraphClick(object? sender, RoutedEventArgs e) => FitToContent();
+
+    private void OnArrangeGraphClick(object? sender, RoutedEventArgs e) => ViewModel?.AutoArrangeGraph();
 
     public void FitToContent()
     {

@@ -57,6 +57,9 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-AR-01 — gotowe:** produkt, podsystem i komponent mają jawny wielokrotny wybór systemów bez automatycznego dziedziczenia.
 - **FR-NAV-01 — gotowe:** Wstecz/Dalej przywraca widok, dokument i stan kamery grafu w bieżącej sesji.
 - **FR-PR-12 — gotowe:** lewe drzewo zachowuje rozwinięte gałęzie podczas otwierania notatek, zapisu oraz przenoszenia elementów.
+- **FR-PR-13 — gotowe:** nowe zadanie otrzymuje globalny priorytet końcowy, a widok zadań można filtrować po stabilnym identyfikatorze źródła.
+- **FR-GR-07 — gotowe:** graf obsługuje wielozaznaczenie kliknięciem i ramką, grupowe przesunięcie jako jedno Undo, zwijanie folderów oraz deterministyczny układ gwiazdowy.
+- **FR-GR-08 — gotowe:** `Ctrl/⌘ + kółko` oraz pinch powiększają graf względem kursora; zwykłe kółko nie zmienia skali.
 
 - **FR-PR-01 — gotowe:** użytkownik może tworzyć projekty oraz zagnieżdżone foldery.
 - **FR-PR-02 — gotowe:** tag zgodny ze slugiem projektu przypisuje notatkę do projektu.
@@ -75,6 +78,7 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-EX-02 — gotowe:** eksport HTML blokuje zasoby zewnętrzne, a poprawne lokalne obrazy osadza jako dane dokumentu.
 - **FR-EX-03 — gotowe:** „Do Confluence” kopiuje do schowka rich text i wersję tekstową; aplikacja nie otwiera Confluence ani nie wysyła danych.
 - **FR-EX-04 — gotowe:** tabele, nagłówki, listy, checklisty i bloki kodu zachowują użyteczną strukturę w eksportach.
+- **FR-EX-06 — gotowe:** nazwane linki encji i zadań są eksportowane jako tekstowe adresy bez pobierania ich zawartości.
 - **FR-EX-05 — planowane:** import pojedynczego DOCX/HTML tworzy raport elementów zachowanych i pominiętych.
 
 ### FR-PE — osoby i zaangażowanie
@@ -97,6 +101,7 @@ Oznaczenia: **gotowe** — zaimplementowane i objęte kontrolą; **częściowe**
 - **FR-DATA-06 — gotowe:** kopia biblioteki ma manifest SHA-256, jest sprawdzana po utworzeniu i przed przywróceniem.
 - **FR-DATA-07 — gotowe:** przy zamykaniu użytkownik może zaktualizować zewnętrzną rotację `Current`/`Previous`; ostatnia poprawna kopia nie jest usuwana przed walidacją nowej.
 - **FR-DATA-08 — gotowe:** biblioteka ma wersję schematu, nowszy format blokuje zapis, a migracja starszego formatu pracuje na nowym katalogu obok oryginału.
+- **FR-DATA-09 — gotowe:** schemat 3 przechowuje stabilne identyfikatory zadań, globalne priorytety i nazwane linki HTTP/HTTPS; opis projektu pozostaje oddzielony od sekcji „Plan działania”.
 - **FR-DATA-07 — gotowe:** przywracanie wymaga nowego albo pustego folderu i nie nadpisuje istniejącej biblioteki.
 
 ## 3. Wymagania niefunkcjonalne

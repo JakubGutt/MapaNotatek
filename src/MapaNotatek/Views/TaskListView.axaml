@@ -9,14 +9,23 @@
                 Padding="24,20,24,16"
                 BorderBrush="{DynamicResource BorderSubtleBrush}"
                 BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="4">
                     <TextBlock Text="Otwarte zadania" Classes="heading" />
                     <TextBlock Text="Chwyć kafelek za uchwyt ⋮⋮ i przeciągnij, aby ustawić najważniejsze zadania u góry."
                                Classes="subtitle"
                                TextWrapping="Wrap" />
                 </StackPanel>
-                <Border Grid.Column="1"
+                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Text="ŹRÓDŁO" Classes="eyebrow" />
+                    <ComboBox x:Name="SourceFilter"
+                              MinWidth="230"
+                              MaxWidth="330"
+                              MinHeight="34"
+                              SelectionChanged="OnSourceFilterChanged"
+                              AutomationProperties.Name="Filtr źródła zadań" />
+                </StackPanel>
+                <Border Grid.Column="2"
                         VerticalAlignment="Center"
                         Background="{DynamicResource SurfaceMutedBrush}"
                         CornerRadius="{DynamicResource CornerRadiusSmall}"
@@ -120,6 +129,19 @@
                                                 ToolTip.Tip="Możesz przypisać kilka osób"
                                                 Loaded="OnTaskPeopleButtonLoaded"
                                                 Click="OnTaskPeopleClick" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <TextBlock Text="LINKI"
+                                                   Classes="eyebrow"
+                                                   VerticalAlignment="Center" />
+                                        <Button Grid.Column="1"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Left"
+                                                MinHeight="30"
+                                                Padding="8,4"
+                                                FontSize="12"
+                                                Loaded="OnTaskLinksButtonLoaded"
+                                                Click="OnTaskLinksClick" />
                                     </Grid>
                                 </StackPanel>
                             </Grid>

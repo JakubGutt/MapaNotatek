@@ -36,6 +36,7 @@ public sealed class MainViewModel : ObservableObject
     private string? _selectedNoteId;
     private string? _selectedGraphId;
     private bool _selectedGraphIsProject;
+    private readonly HashSet<string> _selectedGraphIds = new(StringComparer.OrdinalIgnoreCase);
     private string _statusText = string.Empty;
     private readonly Dictionary<string, Note> _pendingSaveNotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Project> _pendingSaveProjects = new(StringComparer.OrdinalIgnoreCase);
@@ -194,6 +195,7 @@ public sealed class MainViewModel : ObservableObject
 
     public string? SelectedGraphId => _selectedGraphId;
     public bool SelectedGraphIsProject => _selectedGraphIsProject;
+    public IReadOnlyCollection<string> SelectedGraphIds => _selectedGraphIds;
 
     public string ThemeName => ApplicationThemeName();
 
@@ -244,6 +246,7 @@ public sealed class MainViewModel : ObservableObject
         Notes.AddRange(Store.LoadNotes());
         People.Clear();
         People.AddRange(Store.LoadPeople());
+        NormalizeLoadedTaskMetadata();
         LayoutService.ApplyMissingPositions(Projects, Notes, State.NodePositions);
         RefreshVisible();
         Raise(nameof(StorageIssues));
@@ -251,6 +254,99 @@ public sealed class MainViewModel : ObservableObject
         GraphChanged?.Invoke();
         PeopleChanged?.Invoke();
         EditorChanged?.Invoke();
+    }
+
+    public ChecklistItem CreateChecklistItem()
+    {
+        return new ChecklistItem
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Priority = NextTaskPriority()
+        };
+    }
+
+    public DocumentBlock CreateChecklistBlock()
+    {
+        return new DocumentBlock
+        {
+            Kind = DocumentBlockKind.Checklist,
+            TaskId = Guid.NewGuid().ToString("N"),
+            TaskPriority = NextTaskPriority()
+        };
+    }
+
+    public void NormalizeTaskItems(IEnumerable<ChecklistItem> items)
+    {
+        var next = NextTaskPriority();
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.Id))
+            {
+                item.Id = Guid.NewGuid().ToString("N");
+            }
+
+            if (!item.Priority.HasValue)
+            {
+                item.Priority = next;
+                next += 100;
+            }
+        }
+    }
+
+    private int NextTaskPriority()
+    {
+        var priorities = Projects.SelectMany(project => project.Checklist)
+            .Concat(Notes.SelectMany(note => note.Checklist))
+            .Where(task => task.Priority.HasValue)
+            .Select(task => task.Priority!.Value)
+            .ToList();
+        if (priorities.Count == 0)
+        {
+            return 0;
+        }
+
+        var max = priorities.Max();
+        if (max <= int.MaxValue - 100)
+        {
+            return max + 100;
+        }
+
+        var ordered = Projects.SelectMany(project => project.Checklist)
+            .Concat(Notes.SelectMany(note => note.Checklist))
+            .OrderBy(task => task.Priority)
+            .ToList();
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            ordered[index].Priority = index * 100;
+        }
+
+        return ordered.Count * 100;
+    }
+
+    private void NormalizeLoadedTaskMetadata()
+    {
+        var allItems = Projects.SelectMany(project => project.Checklist)
+            .Concat(Notes.SelectMany(note => note.Checklist))
+            .ToList();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var next = allItems.Where(item => item.Priority.HasValue).Select(item => item.Priority!.Value)
+            .DefaultIfEmpty(-100).Max() + 100;
+        foreach (var item in allItems)
+        {
+            if (string.IsNullOrWhiteSpace(item.Id) || !used.Add(item.Id))
+            {
+                do
+                {
+                    item.Id = Guid.NewGuid().ToString("N");
+                } while (!used.Add(item.Id));
+            }
+
+            if (!item.Priority.HasValue)
+            {
+                item.Priority = next;
+                next += 100;
+            }
+        }
     }
 
     public Project NewProject(double? x = null, double? y = null, string? parentId = null, bool isFolder = false)
@@ -512,8 +608,8 @@ public sealed class MainViewModel : ObservableObject
         _selectedNoteId = null;
         if (focusGraph)
         {
-            _selectedGraphId = project.Id;
-            _selectedGraphIsProject = true;
+            ExpandGraphAncestors(project.Id, isProject: true);
+            SetPrimaryGraphSelection(project.Id, isProject: true);
         }
 
         if (filterToProject)
@@ -547,8 +643,8 @@ public sealed class MainViewModel : ObservableObject
         _selectedProjectId = null;
         if (focusGraph)
         {
-            _selectedGraphId = note.Id;
-            _selectedGraphIsProject = false;
+            ExpandGraphAncestors(note.Id, isProject: false);
+            SetPrimaryGraphSelection(note.Id, isProject: false);
         }
 
         IsEditorOpen = openEditor;
@@ -568,14 +664,60 @@ public sealed class MainViewModel : ObservableObject
 
     public void SelectGraphNode(string id, bool isProject)
     {
-        _selectedGraphId = id;
-        _selectedGraphIsProject = isProject;
+        SetPrimaryGraphSelection(id, isProject);
         SelectionChanged?.Invoke();
         // Do not raise GraphChanged — a full Refresh would recreate nodes and break drag.
     }
 
+    public void ToggleGraphNodeSelection(string id, bool isProject)
+    {
+        if (!_selectedGraphIds.Add(id))
+        {
+            _selectedGraphIds.Remove(id);
+            if (string.Equals(_selectedGraphId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedGraphId = _selectedGraphIds.FirstOrDefault();
+                _selectedGraphIsProject = _selectedGraphId is not null &&
+                    Projects.Any(project => string.Equals(project.Id, _selectedGraphId, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        else
+        {
+            _selectedGraphId = id;
+            _selectedGraphIsProject = isProject;
+        }
+
+        SelectionChanged?.Invoke();
+    }
+
+    public void SetGraphSelection(IEnumerable<string> ids, bool add)
+    {
+        if (!add)
+        {
+            _selectedGraphIds.Clear();
+        }
+
+        foreach (var id in ids.Where(id => Projects.Any(project => project.Id == id) || Notes.Any(note => note.Id == id)))
+        {
+            _selectedGraphIds.Add(id);
+            _selectedGraphId = id;
+            _selectedGraphIsProject = Projects.Any(project => string.Equals(project.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (_selectedGraphIds.Count == 0)
+        {
+            _selectedGraphId = null;
+            _selectedGraphIsProject = false;
+        }
+
+        SelectionChanged?.Invoke();
+    }
+
+    public bool IsGraphNodeSelected(string id) => _selectedGraphIds.Contains(id);
+
     public void ClearGraphSelection()
     {
+        _selectedGraphIds.Clear();
         _selectedGraphId = null;
         _selectedGraphIsProject = false;
         SelectionChanged?.Invoke();
@@ -648,6 +790,92 @@ public sealed class MainViewModel : ObservableObject
         }
 
         TrySaveState();
+    }
+
+    public void MoveNodes(IReadOnlyDictionary<string, GraphPosition> targetPositions, bool recordUndo)
+    {
+        var before = targetPositions.Keys.ToDictionary(
+            id => id,
+            id => ClonePosition(LayoutService.Get(State.NodePositions, id)),
+            StringComparer.OrdinalIgnoreCase);
+        var after = targetPositions.ToDictionary(
+            pair => pair.Key,
+            pair => ClonePosition(pair.Value),
+            StringComparer.OrdinalIgnoreCase);
+        if (before.All(pair => after.TryGetValue(pair.Key, out var target) &&
+                               Math.Abs(pair.Value.X - target.X) <= 1 &&
+                               Math.Abs(pair.Value.Y - target.Y) <= 1))
+        {
+            return;
+        }
+
+        ApplyPositions(after, notify: false);
+        if (recordUndo)
+        {
+            PushUndo(
+                () => ApplyPositions(before, notify: true),
+                () => ApplyPositions(after, notify: true));
+        }
+
+        TrySaveState();
+    }
+
+    public void AutoArrangeGraph()
+    {
+        var focused = FocusedProject();
+        var projects = focused is null
+            ? Projects.ToList()
+            : LayoutService.ProjectSubtree(Projects, focused.Id).ToList();
+        var projectIds = projects.Select(project => project.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var notes = focused is null
+            ? Notes.ToList()
+            : Notes.Where(note => Projects.Any(project =>
+                    projectIds.Contains(project.Id) && LayoutService.NoteLinksTo(note, project)))
+                .ToList();
+        var positions = LayoutService.CreateStarLayout(projects, notes);
+        MoveNodes(positions, recordUndo: true);
+        GraphChanged?.Invoke();
+        StatusText = "Uporządkowano graf";
+    }
+
+    public bool IsGraphFolderCollapsed(string folderId) =>
+        State.CollapsedGraphFolderIds.Contains(folderId, StringComparer.OrdinalIgnoreCase);
+
+    public void ToggleGraphFolderCollapsed(Project folder)
+    {
+        if (!folder.IsFolder)
+        {
+            return;
+        }
+
+        if (IsGraphFolderCollapsed(folder.Id))
+        {
+            State.CollapsedGraphFolderIds.RemoveAll(id => string.Equals(id, folder.Id, StringComparison.OrdinalIgnoreCase));
+            StatusText = $"Rozwinięto folder „{folder.Name}”";
+        }
+        else
+        {
+            State.CollapsedGraphFolderIds.Add(folder.Id);
+            StatusText = $"Zwinięto folder „{folder.Name}”";
+        }
+
+        TrySaveState();
+        GraphChanged?.Invoke();
+    }
+
+    public int CountHiddenUnderFolder(Project folder)
+    {
+        var descendants = LayoutService.ProjectSubtree(Projects, folder.Id)
+            .Where(project => !string.Equals(project.Id, folder.Id, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var ids = descendants.Select(project => project.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ids.Add(folder.Id);
+        var notes = Notes.Count(note =>
+        {
+            var linked = Projects.Where(project => LayoutService.NoteLinksTo(note, project)).ToList();
+            return linked.Count > 0 && linked.All(project => ids.Contains(project.Id));
+        });
+        return descendants.Count + notes;
     }
 
     public void ScheduleSaveNote(Note note)
@@ -986,6 +1214,7 @@ public sealed class MainViewModel : ObservableObject
         var previousBody = note.Body;
         var previousTags = note.Tags;
         var previousPeople = note.People;
+        var previousExternalLinks = note.ExternalLinks;
         var previousChecklist = note.Checklist;
         var previousModified = note.Modified;
         var previousPath = note.FilePath;
@@ -997,6 +1226,7 @@ public sealed class MainViewModel : ObservableObject
             note.Body = parsed.Body;
             note.Tags = FrontMatter.SplitTags(parsed["tags"]);
             note.People = PersonTagService.Parse(parsed["people"]);
+            note.ExternalLinks = ExternalLinkService.Deserialize(parsed["external_links"]);
             note.Checklist = parsed.Checklist;
             SaveNoteWithHistory(note);
         }
@@ -1006,6 +1236,7 @@ public sealed class MainViewModel : ObservableObject
             note.Body = previousBody;
             note.Tags = previousTags;
             note.People = previousPeople;
+            note.ExternalLinks = previousExternalLinks;
             note.Checklist = previousChecklist;
             note.Modified = previousModified;
             note.FilePath = previousPath;
@@ -1129,6 +1360,12 @@ public sealed class MainViewModel : ObservableObject
         }
 
         Notes.Remove(note);
+        _selectedGraphIds.Remove(note.Id);
+        if (string.Equals(_selectedGraphId, note.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedGraphId = null;
+            _selectedGraphIsProject = false;
+        }
         var snapshot = note;
         PushUndo(
             () =>
@@ -1260,6 +1497,28 @@ public sealed class MainViewModel : ObservableObject
         }
 
         PeopleChanged?.Invoke();
+    }
+
+    public void NotifyTaskLinksChanged(OpenTask task)
+    {
+        if (task.IsProject)
+        {
+            var project = Projects.FirstOrDefault(candidate => candidate.Id == task.SourceId);
+            if (project is not null)
+            {
+                ScheduleSaveProject(project);
+            }
+        }
+        else
+        {
+            var note = Notes.FirstOrDefault(candidate => candidate.Id == task.SourceId);
+            if (note is not null)
+            {
+                ScheduleSaveNote(note);
+            }
+        }
+
+        EditorChanged?.Invoke();
     }
 
     public bool MoveTask(OpenTask movedTask, OpenTask targetTask, bool placeAfter)
@@ -1432,7 +1691,8 @@ public sealed class MainViewModel : ObservableObject
         SidebarVisible = state.SidebarVisible,
         EditorDetailsVisible = state.EditorDetailsVisible,
         PinnedIds = state.PinnedIds.ToList(),
-        RecentIds = state.RecentIds.ToList()
+        RecentIds = state.RecentIds.ToList(),
+        CollapsedGraphFolderIds = state.CollapsedGraphFolderIds.ToList()
     };
 
     private static void CopyState(AppState source, AppState destination)
@@ -1448,6 +1708,7 @@ public sealed class MainViewModel : ObservableObject
         destination.EditorDetailsVisible = clone.EditorDetailsVisible;
         destination.PinnedIds = clone.PinnedIds;
         destination.RecentIds = clone.RecentIds;
+        destination.CollapsedGraphFolderIds = clone.CollapsedGraphFolderIds;
     }
 
     public void SaveZoom(double zoom)
@@ -1582,13 +1843,16 @@ public sealed class MainViewModel : ObservableObject
             var copy = Store.CreateNote(original.Title + " — kopia lokalna", original.Tags);
             copy.Body = original.Body;
             copy.People = original.People.ToList();
+            copy.ExternalLinks = ExternalLinkService.Clone(original.ExternalLinks);
             copy.Checklist = original.Checklist
                 .Select(item => new ChecklistItem
                 {
+                    Id = item.Id,
                     Text = item.Text,
                     IsDone = item.IsDone,
                     People = item.People.ToList(),
-                    Priority = item.Priority
+                    Priority = item.Priority,
+                    ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks)
                 })
                 .ToList();
             Store.SaveNote(copy);
@@ -1605,13 +1869,16 @@ public sealed class MainViewModel : ObservableObject
                 original.ItemType);
             copy.Description = original.Description;
             copy.People = original.People.ToList();
+            copy.ExternalLinks = ExternalLinkService.Clone(original.ExternalLinks);
             copy.Checklist = original.Checklist
                 .Select(item => new ChecklistItem
                 {
+                    Id = item.Id,
                     Text = item.Text,
                     IsDone = item.IsDone,
                     People = item.People.ToList(),
-                    Priority = item.Priority
+                    Priority = item.Priority,
+                    ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks)
                 })
                 .ToList();
             Store.SaveProject(copy);
@@ -1631,6 +1898,7 @@ public sealed class MainViewModel : ObservableObject
             copy.Role = original.Role;
             copy.Description = original.Description;
             copy.AvatarPath = original.AvatarPath;
+            copy.ExternalLinks = ExternalLinkService.Clone(original.ExternalLinks);
             Store.SavePerson(copy);
             _pendingSavePeople.Remove(original.Id);
             copies++;
@@ -1893,6 +2161,8 @@ public sealed class MainViewModel : ObservableObject
 
         Projects.Remove(project);
         State.NodePositions.Remove(project.Id);
+        State.CollapsedGraphFolderIds.RemoveAll(id => string.Equals(id, project.Id, StringComparison.OrdinalIgnoreCase));
+        _selectedGraphIds.Remove(project.Id);
         State.PinnedIds.RemoveAll(x => string.Equals(x, project.Id, StringComparison.OrdinalIgnoreCase));
         State.RecentIds.RemoveAll(x => string.Equals(x, project.Id, StringComparison.OrdinalIgnoreCase));
         if (string.Equals(_focusedProjectId, project.Id, StringComparison.OrdinalIgnoreCase))
@@ -1909,6 +2179,7 @@ public sealed class MainViewModel : ObservableObject
         if (string.Equals(_selectedGraphId, project.Id, StringComparison.OrdinalIgnoreCase))
         {
             _selectedGraphId = null;
+            _selectedGraphIsProject = false;
         }
 
         IsEditorOpen = false;
@@ -2351,8 +2622,116 @@ public sealed class MainViewModel : ObservableObject
         return true;
     }
 
+    private void SetPrimaryGraphSelection(string id, bool isProject)
+    {
+        _selectedGraphIds.Clear();
+        _selectedGraphIds.Add(id);
+        _selectedGraphId = id;
+        _selectedGraphIsProject = isProject;
+    }
+
+    private void ExpandGraphAncestors(string id, bool isProject)
+    {
+        var changed = false;
+        var startingProjects = isProject
+            ? Projects.Where(project => string.Equals(project.Id, id, StringComparison.OrdinalIgnoreCase))
+            : Notes.Where(note => string.Equals(note.Id, id, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(note => Projects.Where(project => LayoutService.NoteLinksTo(note, project)));
+        foreach (var start in startingProjects.ToList())
+        {
+            var current = start;
+            var guard = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!isProject)
+            {
+                changed |= State.CollapsedGraphFolderIds.RemoveAll(folderId =>
+                    string.Equals(folderId, current.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+            }
+            while (!string.IsNullOrWhiteSpace(current.ParentId) && guard.Add(current.Id))
+            {
+                var parent = Projects.FirstOrDefault(project =>
+                    string.Equals(project.Id, current.ParentId, StringComparison.OrdinalIgnoreCase));
+                if (parent is null)
+                {
+                    break;
+                }
+
+                changed |= State.CollapsedGraphFolderIds.RemoveAll(folderId =>
+                    string.Equals(folderId, parent.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+                current = parent;
+            }
+        }
+
+        if (changed)
+        {
+            TrySaveState();
+        }
+    }
+
+    private void ApplyPositions(IReadOnlyDictionary<string, GraphPosition> positions, bool notify)
+    {
+        foreach (var pair in positions)
+        {
+            State.NodePositions[pair.Key] = ClonePosition(pair.Value);
+        }
+
+        TrySaveState();
+        if (notify)
+        {
+            GraphChanged?.Invoke();
+        }
+    }
+
+    private static GraphPosition ClonePosition(GraphPosition source) => new()
+    {
+        Id = source.Id,
+        X = source.X,
+        Y = source.Y
+    };
+
+    private HashSet<string> HiddenGraphProjectIds()
+    {
+        var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            return hidden;
+        }
+
+        foreach (var folderId in State.CollapsedGraphFolderIds)
+        {
+            foreach (var descendant in LayoutService.ProjectSubtree(Projects, folderId))
+            {
+                if (!string.Equals(descendant.Id, folderId, StringComparison.OrdinalIgnoreCase))
+                {
+                    hidden.Add(descendant.Id);
+                }
+            }
+        }
+
+        return hidden;
+    }
+
+    private HashSet<string> CollapsedGraphScopeIds()
+    {
+        var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            return hidden;
+        }
+
+        foreach (var folderId in State.CollapsedGraphFolderIds)
+        {
+            foreach (var project in LayoutService.ProjectSubtree(Projects, folderId))
+            {
+                hidden.Add(project.Id);
+            }
+        }
+
+        return hidden;
+    }
+
     private IEnumerable<Project> VisibleGraphProjects()
     {
+        var hiddenIds = HiddenGraphProjectIds();
         var focused = FocusedProject();
         var scopeIds = focused is null
             ? null
@@ -2361,6 +2740,11 @@ public sealed class MainViewModel : ObservableObject
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var project in Projects)
         {
+            if (hiddenIds.Contains(project.Id))
+            {
+                continue;
+            }
+
             if (scopeIds is not null && !scopeIds.Contains(project.Id))
             {
                 continue;
@@ -2379,6 +2763,7 @@ public sealed class MainViewModel : ObservableObject
 
     private IEnumerable<Note> VisibleGraphNotes()
     {
+        var collapsedScopeIds = CollapsedGraphScopeIds();
         var focused = FocusedProject();
         var scopeProjects = focused is null
             ? null
@@ -2391,6 +2776,12 @@ public sealed class MainViewModel : ObservableObject
             }
 
             if (scopeProjects is not null && !scopeProjects.Any(project => LayoutService.NoteLinksTo(note, project)))
+            {
+                continue;
+            }
+
+            var linkedProjects = Projects.Where(project => LayoutService.NoteLinksTo(note, project)).ToList();
+            if (linkedProjects.Count > 0 && linkedProjects.All(project => collapsedScopeIds.Contains(project.Id)))
             {
                 continue;
             }

@@ -7,7 +7,7 @@ namespace MapaNotatek.Services;
 public sealed class SystemTransferManifest
 {
     public string Format { get; set; } = "MapaNotatek-system-transfer";
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public Guid PackageId { get; set; }
     public Guid SourceLibraryId { get; set; }
     public string SourceSystemId { get; set; } = string.Empty;
@@ -39,6 +39,7 @@ public sealed class TransferProject
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<string> People { get; set; } = [];
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
     public List<string> SystemIds { get; set; } = [];
     public List<TransferChecklistItem> Checklist { get; set; } = [];
     public bool IsArchived { get; set; }
@@ -55,6 +56,7 @@ public sealed class TransferNote
     public string Body { get; set; } = string.Empty;
     public List<string> Tags { get; set; } = [];
     public List<string> People { get; set; } = [];
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
     public List<string> RelatedNoteIds { get; set; } = [];
     public List<TransferChecklistItem> Checklist { get; set; } = [];
     public DateTimeOffset Created { get; set; }
@@ -69,16 +71,19 @@ public sealed class TransferPerson
     public string Role { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string AvatarPath { get; set; } = string.Empty;
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
     public DateTimeOffset Created { get; set; }
     public DateTimeOffset Modified { get; set; }
 }
 
 public sealed class TransferChecklistItem
 {
+    public string Id { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
     public bool IsDone { get; set; }
     public List<string> People { get; set; } = [];
     public int? Priority { get; set; }
+    public List<ExternalLink> ExternalLinks { get; set; } = [];
 }
 
 public sealed class TransferGraphPosition
@@ -266,17 +271,21 @@ internal static class TransferModelCloner
 {
     public static TransferChecklistItem From(ChecklistItem item) => new()
     {
+        Id = item.Id,
         Text = item.Text,
         IsDone = item.IsDone,
         People = item.People.ToList(),
-        Priority = item.Priority
+        Priority = item.Priority,
+        ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks)
     };
 
     public static ChecklistItem To(TransferChecklistItem item) => new()
     {
+        Id = string.IsNullOrWhiteSpace(item.Id) ? Guid.NewGuid().ToString("N") : item.Id,
         Text = item.Text,
         IsDone = item.IsDone,
         People = item.People.ToList(),
-        Priority = item.Priority
+        Priority = item.Priority,
+        ExternalLinks = ExternalLinkService.Clone(item.ExternalLinks)
     };
 }

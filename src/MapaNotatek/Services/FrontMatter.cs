@@ -7,6 +7,8 @@ namespace MapaNotatek.Services;
 
 public static class FrontMatter
 {
+    public const string ProjectTasksHeading = "## Plan działania";
+
     private static readonly Regex ChecklistLine = new(
         @"^(?<prefix>\s*[-*]\s+\[)(?<state>[ xX])(?<suffix>\]\s*)(?<text>.*)$",
         RegexOptions.Compiled);
@@ -64,17 +66,21 @@ public static class FrontMatter
                     out var isDone,
                     out var itemText,
                     out var people,
-                    out var priority))
+                    out var priority,
+                    out var taskId,
+                    out var externalLinks))
             {
                 continue;
             }
 
             result.Checklist.Add(new ChecklistItem
             {
+                Id = string.IsNullOrWhiteSpace(taskId) ? Guid.NewGuid().ToString("N") : taskId,
                 IsDone = isDone,
                 Text = itemText,
                 People = people,
                 Priority = priority,
+                ExternalLinks = externalLinks,
                 SourceLineIndex = lineIndex,
                 SourceLine = bodyLines[lineIndex]
             });
@@ -101,7 +107,8 @@ public static class FrontMatter
             itemType: ProjectItemType.Project,
             people: note.People,
             systems: null,
-            relatedNotes: note.RelatedNoteIds);
+            relatedNotes: note.RelatedNoteIds,
+            externalLinks: note.ExternalLinks);
         builder.Append("# ").AppendLine(note.Title);
         builder.AppendLine();
 
@@ -132,14 +139,26 @@ public static class FrontMatter
             project.ItemType,
             project.People,
             project.SystemIds,
-            relatedNotes: null);
+            relatedNotes: null,
+            externalLinks: project.ExternalLinks);
         builder.Append("# ").AppendLine(project.Name);
         builder.AppendLine();
 
-        project.Description = MergeChecklistIntoBody(project.Description, project.Checklist);
         if (!string.IsNullOrWhiteSpace(project.Description))
         {
             builder.AppendLine(project.Description.TrimEnd());
+            builder.AppendLine();
+        }
+
+        if (project.Checklist.Count > 0)
+        {
+            builder.AppendLine(ProjectTasksHeading);
+            builder.AppendLine();
+            foreach (var item in project.Checklist)
+            {
+                builder.AppendLine(FormatChecklistLine(string.Empty, item));
+            }
+
             builder.AppendLine();
         }
 
@@ -162,6 +181,12 @@ public static class FrontMatter
         if (!string.IsNullOrWhiteSpace(person.AvatarPath))
         {
             builder.Append("avatar: ").AppendLine(person.AvatarPath.Trim());
+        }
+
+        var externalLinks = ExternalLinkService.Serialize(person.ExternalLinks);
+        if (!string.IsNullOrWhiteSpace(externalLinks))
+        {
+            builder.Append("external_links: ").AppendLine(externalLinks);
         }
 
         builder.Append("created: ").AppendLine(person.Created.ToString("O", CultureInfo.InvariantCulture));
@@ -208,6 +233,43 @@ public static class FrontMatter
         string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
 
+    public static string ExtractProjectContext(string? body)
+    {
+        var lines = NormalizeNewLines(body ?? string.Empty).Split('\n').ToList();
+        var result = new List<string>();
+        foreach (var original in lines)
+        {
+            var trimmed = original.Trim();
+            if (string.Equals(trimmed, ProjectTasksHeading, StringComparison.OrdinalIgnoreCase) ||
+                ChecklistLine.IsMatch(original))
+            {
+                continue;
+            }
+
+            var line = original;
+            line = Regex.Replace(line, @"^\s*#{1,6}\s+", string.Empty);
+            line = Regex.Replace(line, @"^\s*[-*]\s+", "• ");
+            line = Regex.Replace(line, @"^\s*>\s?", string.Empty);
+            line = Regex.Replace(line, @"\[(?<label>[^\]]+)\]\((?<url>https?://[^)]+)\)", "${label} (${url})");
+            line = line.Replace("**", string.Empty, StringComparison.Ordinal)
+                .Replace("__", string.Empty, StringComparison.Ordinal)
+                .Replace("~~", string.Empty, StringComparison.Ordinal)
+                .Replace("`", string.Empty, StringComparison.Ordinal);
+            result.Add(line.TrimEnd());
+        }
+
+        TrimOuterBlankLines(result);
+        for (var index = result.Count - 1; index > 0; index--)
+        {
+            if (string.IsNullOrWhiteSpace(result[index]) && string.IsNullOrWhiteSpace(result[index - 1]))
+            {
+                result.RemoveAt(index);
+            }
+        }
+
+        return string.Join("\n", result).Trim();
+    }
+
     private static string MergeChecklistIntoBody(string? body, IList<ChecklistItem> items)
     {
         var normalized = NormalizeNewLines(body ?? string.Empty).TrimEnd('\n');
@@ -248,7 +310,7 @@ public static class FrontMatter
                 lines.Add(string.Empty);
             }
 
-            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority)}";
+            var newLine = $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority, item.Id, item.ExternalLinks)}";
             lines.Add(newLine);
             var newIndex = lines.Count - 1;
             claimedLines.Add(newIndex);
@@ -303,7 +365,7 @@ public static class FrontMatter
         for (var index = 0; index < lines.Count; index++)
         {
             if (claimedLines.Contains(index) ||
-                !TryReadChecklistLine(lines[index], out _, out var existingText, out _, out _) ||
+                !TryReadChecklistLine(lines[index], out _, out var existingText, out _, out _, out _, out _) ||
                 !string.Equals(existingText, text, StringComparison.Ordinal))
             {
                 continue;
@@ -320,13 +382,13 @@ public static class FrontMatter
         var match = ChecklistLine.Match(originalLine);
         if (!match.Success)
         {
-            return $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority)}";
+            return $"- [{(item.IsDone ? 'x' : ' ')}] {PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority, item.Id, item.ExternalLinks)}";
         }
 
         return match.Groups["prefix"].Value +
                (item.IsDone ? "x" : " ") +
                match.Groups["suffix"].Value +
-               PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority);
+               PersonTagService.AppendTaskMetadata(item.Text, item.People, item.Priority, item.Id, item.ExternalLinks);
     }
 
     private static bool TryReadChecklistLine(
@@ -334,7 +396,9 @@ public static class FrontMatter
         out bool isDone,
         out string text,
         out List<string> people,
-        out int? priority)
+        out int? priority,
+        out string? taskId,
+        out List<ExternalLink> externalLinks)
     {
         var match = ChecklistLine.Match(line);
         if (!match.Success)
@@ -343,6 +407,8 @@ public static class FrontMatter
             text = string.Empty;
             people = [];
             priority = null;
+            taskId = null;
+            externalLinks = [];
             return false;
         }
 
@@ -350,6 +416,8 @@ public static class FrontMatter
         var rawText = match.Groups["text"].Value.TrimEnd();
         people = PersonTagService.ReadTaskPeople(rawText);
         priority = PersonTagService.ReadTaskPriority(rawText);
+        taskId = PersonTagService.ReadTaskId(rawText);
+        externalLinks = PersonTagService.ReadTaskLinks(rawText);
         text = PersonTagService.StripTaskMetadata(rawText);
         return true;
     }
@@ -394,7 +462,8 @@ public static class FrontMatter
         ProjectItemType itemType,
         IEnumerable<string>? people,
         IEnumerable<string>? systems,
-        IEnumerable<string>? relatedNotes)
+        IEnumerable<string>? relatedNotes,
+        IEnumerable<ExternalLink>? externalLinks)
     {
         builder.AppendLine("---");
         builder.Append("id: ").AppendLine(id);
@@ -430,6 +499,11 @@ public static class FrontMatter
         if (type == "note" && !string.IsNullOrWhiteSpace(relatedIds))
         {
             builder.Append("related_notes: ").AppendLine(relatedIds);
+        }
+        var serializedLinks = ExternalLinkService.Serialize(externalLinks);
+        if (!string.IsNullOrWhiteSpace(serializedLinks))
+        {
+            builder.Append("external_links: ").AppendLine(serializedLinks);
         }
         if (archived.HasValue)
         {

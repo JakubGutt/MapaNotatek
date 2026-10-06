@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using MapaNotatek.Models;
 
@@ -207,7 +208,7 @@ public static class SystemTransferPackageService
 
         var manifest = ReadJson<SystemTransferManifest>(manifestEntry, 2 * 1024 * 1024);
         if (!string.Equals(manifest.Format, "MapaNotatek-system-transfer", StringComparison.Ordinal) ||
-            manifest.Version != 1 || manifest.PackageId == Guid.Empty || manifest.SourceLibraryId == Guid.Empty ||
+            manifest.Version is not (1 or 2) || manifest.PackageId == Guid.Empty || manifest.SourceLibraryId == Guid.Empty ||
             string.IsNullOrWhiteSpace(manifest.SourceSystemId))
         {
             throw new InvalidDataException("Pakiet ma nieobsługiwany albo uszkodzony format.");
@@ -252,6 +253,7 @@ public static class SystemTransferPackageService
         }
 
         var snapshot = ReadJson<SystemTransferSnapshot>(snapshotEntry, MaxSnapshotBytes);
+        NormalizeSnapshot(manifest, snapshot);
         ValidateSnapshot(manifest, snapshot);
         return new LoadedSystemTransferPackage(path, manifest, snapshot);
     }
@@ -341,6 +343,7 @@ public static class SystemTransferPackageService
         Slug = project.Slug,
         Description = project.Description,
         People = project.People.ToList(),
+        ExternalLinks = ExternalLinkService.Clone(project.ExternalLinks),
         SystemIds = project.SystemIds.Where(includedIds.Contains).ToList(),
         Checklist = project.Checklist.Select(TransferModelCloner.From).ToList(),
         IsArchived = project.IsArchived,
@@ -357,6 +360,7 @@ public static class SystemTransferPackageService
         Body = note.Body,
         Tags = note.Tags.ToList(),
         People = note.People.ToList(),
+        ExternalLinks = ExternalLinkService.Clone(note.ExternalLinks),
         RelatedNoteIds = note.RelatedNoteIds.Where(includedIds.Contains).ToList(),
         Checklist = note.Checklist.Select(TransferModelCloner.From).ToList(),
         Created = note.Created,
@@ -371,9 +375,73 @@ public static class SystemTransferPackageService
         Role = person.Role,
         Description = person.Description,
         AvatarPath = person.AvatarPath,
+        ExternalLinks = ExternalLinkService.Clone(person.ExternalLinks),
         Created = person.Created,
         Modified = person.Modified
     };
+
+    private static void NormalizeSnapshot(SystemTransferManifest manifest, SystemTransferSnapshot snapshot)
+    {
+        snapshot.Projects ??= [];
+        snapshot.Notes ??= [];
+        snapshot.People ??= [];
+        snapshot.Positions ??= new Dictionary<string, TransferGraphPosition>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var project in snapshot.Projects)
+        {
+            project.People ??= [];
+            project.SystemIds ??= [];
+            project.ExternalLinks = ExternalLinkService.Normalize(project.ExternalLinks);
+            project.Checklist ??= [];
+            if (manifest.Version == 1)
+            {
+                if (project.Checklist.Count == 0)
+                {
+                    project.Checklist = FrontMatter.Parse(project.Description ?? string.Empty).Checklist
+                        .Select(TransferModelCloner.From).ToList();
+                }
+
+                project.Description = FrontMatter.ExtractProjectContext(project.Description);
+            }
+            NormalizeTasks(project.Checklist, $"project:{project.Id}");
+        }
+
+        foreach (var note in snapshot.Notes)
+        {
+            note.Tags ??= [];
+            note.People ??= [];
+            note.RelatedNoteIds ??= [];
+            note.ExternalLinks = ExternalLinkService.Normalize(note.ExternalLinks);
+            note.Checklist ??= [];
+            if (manifest.Version == 1 && note.Checklist.Count == 0)
+            {
+                note.Checklist = FrontMatter.Parse(note.Body ?? string.Empty).Checklist
+                    .Select(TransferModelCloner.From).ToList();
+            }
+            NormalizeTasks(note.Checklist, $"note:{note.Id}");
+        }
+
+        foreach (var person in snapshot.People)
+        {
+            person.ExternalLinks = ExternalLinkService.Normalize(person.ExternalLinks);
+        }
+
+        void NormalizeTasks(List<TransferChecklistItem> tasks, string owner)
+        {
+            for (var index = 0; index < tasks.Count; index++)
+            {
+                var task = tasks[index];
+                task.People ??= [];
+                task.ExternalLinks = ExternalLinkService.Normalize(task.ExternalLinks);
+                if (string.IsNullOrWhiteSpace(task.Id))
+                {
+                    var seed = $"{manifest.PackageId:N}:{owner}:{index}:{task.Text}";
+                    task.Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(seed)))[..32]
+                        .ToLowerInvariant();
+                }
+            }
+        }
+    }
 
     private static void AddBytes(
         ZipArchive archive,
